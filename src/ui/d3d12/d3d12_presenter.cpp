@@ -10,9 +10,11 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <climits>
 #include <cmath>
 #include <memory>
+#include <thread>
 #include <utility>
 
 #include <rex/assert.h>
@@ -32,6 +34,12 @@
 
 REXCVAR_DEFINE_BOOL(d3d12_allow_variable_refresh_rate_and_tearing, true, "UI/D3D12",
                     "Allow variable refresh rate and tearing");
+
+REXCVAR_DEFINE_INT32(frame_rate_limit, 0, "GPU",
+                     "Caps host frame rate to this many frames per second by padding each "
+                     "PaintAndPresent call. 0 = unlimited (present as fast as the GPU allows).")
+    .range(0, 1000)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 namespace rex::ui::d3d12 {
 
@@ -555,6 +563,8 @@ void D3D12Presenter::PaintContext::DestroySwapChain() {
 }
 
 Presenter::PaintResult D3D12Presenter::PaintAndPresentImpl(bool execute_ui_drawers) {
+  const auto frame_start_time = std::chrono::steady_clock::now();
+
   // Begin the command list with the command allocator not currently potentially
   // used on the GPU.
   UINT64 current_paint_submission = paint_context_.paint_submission_tracker.GetCurrentSubmission();
@@ -1162,6 +1172,17 @@ Presenter::PaintResult D3D12Presenter::PaintAndPresentImpl(bool execute_ui_drawe
   // internally before the failure according to Jesse Natalie from the DirectX
   // Discord server.
   paint_context_.present_submission_tracker.NextSubmission();
+
+  const int32_t frame_rate_limit_value = REXCVAR_GET(frame_rate_limit);
+  if (frame_rate_limit_value > 0) {
+    const auto target_frame_duration =
+        std::chrono::duration<double>(1.0 / double(frame_rate_limit_value));
+    const auto elapsed = std::chrono::steady_clock::now() - frame_start_time;
+    if (elapsed < target_frame_duration) {
+      std::this_thread::sleep_for(target_frame_duration - elapsed);
+    }
+  }
+
   switch (present_result) {
     case DXGI_ERROR_DEVICE_REMOVED:
       return PaintResult::kGpuLostExternally;
