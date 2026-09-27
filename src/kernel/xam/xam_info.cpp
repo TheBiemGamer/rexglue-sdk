@@ -187,8 +187,39 @@ u32 XGetGameRegion_entry() {
   return xeXGetGameRegion();
 }
 
+// Matches Xenia-canary's xam_locale.cc: XGetLanguage only ever sees the base 12 languages
+// (games written before the extended range existed reject anything past kMaxBaseLanguages, the
+// same reason XCONFIG_USER_LANGUAGE alone doesn't unlock Swedish/Turkish/Norwegian/Dutch/SChinese
+// for every caller); XamGetLanguage additionally allows the extended range. A value the caller's
+// range rejects falls back to the caller's own region, mirroring a real console with no matching
+// system language installed.
+XLanguage xeGetLanguage(bool extended_languages_support) {
+  const auto desired_language = static_cast<XLanguage>(REXCVAR_GET(user_language));
+  const uint32_t region = xeXGetGameRegion();
+  const auto max_languages =
+      extended_languages_support ? XLanguage::kMaxLanguages : XLanguage::kMaxBaseLanguages;
+  if (desired_language < max_languages) {
+    return desired_language;
+  }
+  if ((region & 0xff00) != 0x100) {
+    return XLanguage::kEnglish;
+  }
+  switch (region) {
+    case 0x101:  // NTSC-J (Japan)
+      return XLanguage::kJapanese;
+    case 0x102:  // NTSC-J (China)
+      return extended_languages_support ? XLanguage::kSChinese : XLanguage::kEnglish;
+    default:
+      return XLanguage::kKorean;
+  }
+}
+
 u32 XGetLanguage_entry() {
-  return REXCVAR_GET(user_language);
+  return static_cast<uint32_t>(xeGetLanguage(false));
+}
+
+u32 XamGetLanguage_entry() {
+  return static_cast<uint32_t>(xeGetLanguage(true));
 }
 
 u32 XamGetCurrentTitleId_entry() {
@@ -344,6 +375,7 @@ REX_EXPORT(__imp__XCustomRegisterDynamicActions,
 REX_EXPORT(__imp__XGetAVPack, rex::kernel::xam::XGetAVPack_entry)
 REX_EXPORT(__imp__XGetGameRegion, rex::kernel::xam::XGetGameRegion_entry)
 REX_EXPORT(__imp__XGetLanguage, rex::kernel::xam::XGetLanguage_entry)
+REX_EXPORT(__imp__XamGetLanguage, rex::kernel::xam::XamGetLanguage_entry)
 REX_EXPORT(__imp__XamGetCurrentTitleId, rex::kernel::xam::XamGetCurrentTitleId_entry)
 REX_EXPORT(__imp__XamGetExecutionId, rex::kernel::xam::XamGetExecutionId_entry)
 REX_EXPORT(__imp__XamLoaderSetLaunchData, rex::kernel::xam::XamLoaderSetLaunchData_entry)

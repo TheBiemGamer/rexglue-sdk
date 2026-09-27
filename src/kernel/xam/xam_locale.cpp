@@ -390,6 +390,10 @@ u32 XamGetLocaleEx_entry(u32 max_country_id, u32 max_locale_id) {
                           static_cast<uint8_t>(max_locale_id));
 }
 
+u32 XamGetCountry_entry() {
+  return REXCVAR_GET(user_country);
+}
+
 }  // namespace xam
 }  // namespace kernel
 }  // namespace rex
@@ -411,14 +415,13 @@ REX_EXPORT(__imp__XamGetLanguageFromOnlineLanguage,
 REX_EXPORT(__imp__XamGetOnlineLanguageString, rex::kernel::xam::XamGetOnlineLanguageString_entry)
 REX_EXPORT(__imp__XamGetCountryFromOnlineCountry,
            rex::kernel::xam::XamGetCountryFromOnlineCountry_entry)
+REX_EXPORT(__imp__XamGetCountry, rex::kernel::xam::XamGetCountry_entry)
 REX_EXPORT(__imp__XamGetLocaleEx, rex::kernel::xam::XamGetLocaleEx_entry)
 
 REX_EXPORT_STUB(__imp__XamFormatCurrency);
 REX_EXPORT_STUB(__imp__XamFormatMessage);
 REX_EXPORT_STUB(__imp__XamFormatSystemDateString);
-REX_EXPORT_STUB(__imp__XamGetCountry);
 REX_EXPORT_STUB(__imp__XamGetCurrencyFormat);
-REX_EXPORT_STUB(__imp__XamGetLanguage);
 REX_EXPORT_STUB(__imp__XamGetLanguageLocaleFallbackString);
 REX_EXPORT_STUB(__imp__XamGetLanguageTypeface);
 REX_EXPORT_STUB(__imp__XamGetLanguageTypefacePatch);
