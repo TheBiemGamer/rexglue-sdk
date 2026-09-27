@@ -9,6 +9,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <rex/cvar.h>
 #include <rex/kernel/xam/module.h>
 #include <rex/kernel/xam/private.h>
 #include <rex/logging.h>
@@ -20,6 +21,10 @@
 #include <rex/system/xenumerator.h>
 #include <rex/system/xthread.h>
 #include <rex/system/xtypes.h>
+
+// Defined in xam_user.cpp; ExGetXConfigSetting (XCONFIG_USER_LANGUAGE) already reads this cvar,
+// but XGetLanguage did not, so games that call both saw an inconsistent language.
+REXCVAR_DECLARE(uint32_t, user_language);
 
 #if REX_PLATFORM_WIN32
 #include <windows.h>
@@ -183,19 +188,7 @@ u32 XGetGameRegion_entry() {
 }
 
 u32 XGetLanguage_entry() {
-  auto desired_language = XLanguage::kEnglish;
-
-  // Switch the language based on game region.
-  // TODO(benvanik): pull from xex header.
-  uint32_t game_region = XEX_REGION_NTSCU;
-  if (game_region & XEX_REGION_NTSCU) {
-    desired_language = XLanguage::kEnglish;
-  } else if (game_region & XEX_REGION_NTSCJ) {
-    desired_language = XLanguage::kJapanese;
-  }
-  // Add more overrides?
-
-  return uint32_t(desired_language);
+  return REXCVAR_GET(user_language);
 }
 
 u32 XamGetCurrentTitleId_entry() {
