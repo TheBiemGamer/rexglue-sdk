@@ -535,13 +535,38 @@ std::vector<std::string> ListModifiedFlags() {
   return result;
 }
 
+namespace {
+
+// TOML basic strings treat backslash as an escape character (e.g. a Windows path like
+// "C:\Users\..." is invalid TOML -- \U starts an 8-hex-digit unicode escape, and "sers..." isn't
+// one). Unescaped, a single saved path could silently break every setting in the file: LoadConfig
+// catches the resulting parse error and logs it, but that log call runs before the log file sink
+// exists (SetupEnvironment loads config before InitLogging), so the error is invisible in practice.
+std::string EscapeTomlBasicString(std::string_view s) {
+  std::string out;
+  out.reserve(s.size() + 2);
+  for (char c : s) {
+    switch (c) {
+      case '\\': out += "\\\\"; break;
+      case '"': out += "\\\""; break;
+      case '\n': out += "\\n"; break;
+      case '\t': out += "\\t"; break;
+      case '\r': out += "\\r"; break;
+      default: out += c; break;
+    }
+  }
+  return out;
+}
+
+}  // namespace
+
 std::string SerializeToTOML() {
   std::lock_guard lock(GetRegistryMutex());
   std::string result;
   for (const auto& entry : GetRegistryStorage()) {
     if (entry.getter() != entry.default_value) {
       if (entry.type == FlagType::String) {
-        result += entry.name + " = \"" + entry.getter() + "\"\n";
+        result += entry.name + " = \"" + EscapeTomlBasicString(entry.getter()) + "\"\n";
       } else {
         result += entry.name + " = " + entry.getter() + "\n";
       }
@@ -556,7 +581,7 @@ std::string SerializeToTOML(std::string_view category) {
   for (const auto& entry : GetRegistryStorage()) {
     if (entry.category == category && entry.getter() != entry.default_value) {
       if (entry.type == FlagType::String) {
-        result += entry.name + " = \"" + entry.getter() + "\"\n";
+        result += entry.name + " = \"" + EscapeTomlBasicString(entry.getter()) + "\"\n";
       } else {
         result += entry.name + " = " + entry.getter() + "\n";
       }
@@ -647,6 +672,10 @@ void LoadConfig(const std::filesystem::path& config_path) {
     ApplyTomlTable(config, "");
     REXLOG_DEBUG("Loaded config from {}", config_path.string());
   } catch (const toml::parse_error& err) {
+    // This runs before InitLogging sets up the log file sink (config loads first so log cvars
+    // have final values -- see the caller), so REXLOG_ERROR alone would be invisible here; also
+    // print to stderr, matching the CLI11 parse-error workaround below.
+    fprintf(stderr, "cvar: failed to parse config %s: %s\n", config_path.string().c_str(), err.what());
     REXLOG_ERROR("Failed to parse config {}: {}", config_path.string(), err.what());
   }
 }
