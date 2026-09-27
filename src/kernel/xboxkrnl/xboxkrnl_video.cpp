@@ -230,9 +230,19 @@ void VdGetCurrentDisplayInformation_entry(ppc_ptr_t<X_DISPLAY_INFO> display_info
 
 void VdQueryVideoMode(X_VIDEO_MODE* video_mode) {
   // Exposed as CVARs so the guest can observe custom display settings.
-  uint32_t display_width = GetConfiguredVideoModeWidth();
-  uint32_t display_height = GetConfiguredVideoModeHeight();
+  int32_t configured_width = int32_t(GetConfiguredVideoModeWidth());
+  int32_t configured_height = int32_t(GetConfiguredVideoModeHeight());
   float refresh_rate_hz = GetConfiguredVideoModeRefreshRate();
+
+  // Snap to a resolution the guest actually shipped with. The window and
+  // internal render resolution stay whatever was configured -- see
+  // SnapToSupportedGuestVideoMode.
+  int32_t snapped_width = 0;
+  int32_t snapped_height = 0;
+  rex::graphics::video_mode_util::SnapToSupportedGuestVideoMode(configured_width, configured_height,
+                                                                 snapped_width, snapped_height);
+  uint32_t display_width = uint32_t(snapped_width);
+  uint32_t display_height = uint32_t(snapped_height);
 
   std::memset(video_mode, 0, sizeof(X_VIDEO_MODE));
   video_mode->display_width = display_width;

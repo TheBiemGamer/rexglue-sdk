@@ -119,4 +119,36 @@ inline bool TryGetResolutionPresetFromCVar(int32_t& width_out, int32_t& height_o
   return TryParseResolutionPreset(resolution_value, width_out, height_out);
 }
 
+// Snaps an arbitrary requested resolution to a resolution real Xbox 360
+// hardware actually reports to guest games (4:3 480p, 16:9 720p, or 16:9
+// 1080p). Guest game code keys its aspect/HUD/camera setup off the reported
+// video mode; anything outside this set is a shape the title never shipped
+// with and can null-deref a lookup table built for it (confirmed via the
+// Cemu graphic pack for this title, which needs explicit per-aspect-ratio
+// constants even for the aspect ratios it *does* support).
+//
+// This only affects what the guest is told and how Presenter::RefreshGuestOutput
+// fits/letterboxes the guest image -- the actual host window size and the
+// internal render resolution (resolution_scale) are configured separately
+// and are unaffected, so an ultrawide/4K window still renders at its full
+// size with a pillarboxed/letterboxed guest image inside it.
+inline void SnapToSupportedGuestVideoMode(int32_t requested_width, int32_t requested_height,
+                                          int32_t& width_out, int32_t& height_out) {
+  double aspect = requested_height > 0
+                      ? double(requested_width) / double(requested_height)
+                      : (16.0 / 9.0);
+  if (aspect < 1.55) {
+    width_out = 640;
+    height_out = 480;
+    return;
+  }
+  if (requested_height <= 900) {
+    width_out = 1280;
+    height_out = 720;
+  } else {
+    width_out = 1920;
+    height_out = 1080;
+  }
+}
+
 }  // namespace rex::graphics::video_mode_util
