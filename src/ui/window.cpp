@@ -55,7 +55,7 @@ REXCVAR_DEFINE_INT32(video_mode_height, 720, "Display", "Guest video mode height
     .range(480, 0x0FFF)
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
-REXCVAR_DEFINE_STRING(resolution, "", "Display",
+REXCVAR_DEFINE_STRING(resolution, "", "Graphics",
                       "Common resolution preset for both guest video mode and startup window (for "
                       "example: 720p, 1080p, 1440p, 4k, 1280x720)")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);

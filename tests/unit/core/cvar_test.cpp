@@ -192,6 +192,25 @@ TEST_CASE("cvar TOML config loading", "[cvar]") {
     auto missing = temp_dir / "nonexistent.toml";
     rex::cvar::LoadConfig(missing);
   }
+
+  SECTION("A [table] header is cosmetic, not a name prefix") {
+    std::ofstream file(config_path);
+    file << "[\"Some Header\"]\n";
+    file << "test_int32_flag = 999\n";
+    file << "test_string_flag = \"from config\"\n";
+    file.close();
+
+    REXCVAR_SET(test_int32_flag, 0);
+    REXCVAR_SET(test_string_flag, "");
+
+    rex::cvar::LoadConfig(config_path);
+
+    // Resolves by its own bare name, not "Some Header_test_int32_flag".
+    CHECK(REXCVAR_GET(test_int32_flag) == 999);
+    CHECK(REXCVAR_GET(test_string_flag) == "from config");
+
+    std::filesystem::remove(config_path);
+  }
 }
 
 TEST_CASE("cvar config replays values for flags registered after loading", "[cvar]") {
@@ -517,6 +536,10 @@ TEST_CASE("cvar TOML serialization", "[cvar]") {
 
   // Should not contain flags at default
   CHECK(toml.find("test_bool_flag") == std::string::npos);
+
+  // Both are category "Test" -- one shared header, not one per flag.
+  CHECK(toml.find("[\"Test\"]") != std::string::npos);
+  CHECK(toml.find("[\"Test\"]\n[\"Test\"]") == std::string::npos);
 }
 
 TEST_CASE("cvar metadata integration test", "[cvar][integration]") {
@@ -550,6 +573,24 @@ REXCVAR_DEFINE_STRING(test_validated_flag, "valid", "Test", "Custom validated fl
     .validator([](std::string_view v) { return v.size() >= 3; });
 REXCVAR_DEFINE_BOOL(test_debug_flag, false, "Test", "Debug-only flag").debug_only();
 REXCVAR_DEFINE_STRING(test_category_flag, "value", "TestCategory", "For category filter test");
+
+TEST_CASE("cvar SerializeToTOML groups by category with headers", "[cvar]") {
+  rex::cvar::testing::ResetAllForTesting();
+
+  REXCVAR_SET(test_int32_flag, 999);          // Category: Test
+  REXCVAR_SET(test_category_flag, "changed"); // Category: TestCategory
+
+  auto toml = rex::cvar::SerializeToTOML();
+
+  auto test_header = toml.find("[\"Test\"]");
+  auto category_header = toml.find("[\"TestCategory\"]");
+  REQUIRE(test_header != std::string::npos);
+  REQUIRE(category_header != std::string::npos);
+
+  // Each flag appears after its own category's header, not the other one's.
+  CHECK(toml.find("test_int32_flag", test_header) < category_header);
+  CHECK(toml.find("test_category_flag", category_header) != std::string::npos);
+}
 
 TEST_CASE("cvar INT64/UINT32/UINT64 types", "[cvar]") {
   SECTION("INT64 get/set") {

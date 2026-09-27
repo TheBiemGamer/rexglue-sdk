@@ -35,7 +35,7 @@
 REXCVAR_DEFINE_BOOL(d3d12_allow_variable_refresh_rate_and_tearing, true, "UI/D3D12",
                     "Allow variable refresh rate and tearing");
 
-REXCVAR_DEFINE_INT32(frame_rate_limit, 0, "GPU",
+REXCVAR_DEFINE_INT32(frame_rate_limit, 0, "Graphics",
                      "Caps host frame rate to this many frames per second by padding each "
                      "PaintAndPresent call. 0 = unlimited (present as fast as the GPU allows).")
     .range(0, 1000)

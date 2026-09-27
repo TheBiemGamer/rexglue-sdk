@@ -93,13 +93,16 @@ bool ApplyFromSource(FlagEntry& entry, std::string_view value, Source source) {
   return true;
 }
 
-// Recursively apply TOML values
-void ApplyTomlTable(const toml::table& table, const std::string& prefix) {
+// Recursively apply TOML values. A [table] is treated as a purely cosmetic grouping (matching
+// how SerializeToTOML() groups saved cvars by category) rather than a namespace: a nested key
+// resolves to its own bare cvar name, not a table-prefixed one, so cvars can be organized under
+// [Headers] in the file without the app failing to recognize them.
+void ApplyTomlTable(const toml::table& table) {
   for (const auto& [key, value] : table) {
-    std::string full_key = prefix.empty() ? std::string(key) : prefix + "_" + std::string(key);
+    std::string full_key = std::string(key);
 
     if (value.is_table()) {
-      ApplyTomlTable(*value.as_table(), full_key);
+      ApplyTomlTable(*value.as_table());
     } else {
       std::string value_str;
       if (value.is_boolean()) {
@@ -562,15 +565,33 @@ std::string EscapeTomlBasicString(std::string_view s) {
 
 std::string SerializeToTOML() {
   std::lock_guard lock(GetRegistryMutex());
-  std::string result;
+
+  // Group by each cvar's own category (set where it's REXCVAR_DEFINE'd) so the file reads the
+  // same way the console/help grouping does, and so [Headers] written by hand survive a save:
+  // the header is regenerated from this same category data, not preserved literally.
+  std::vector<std::string> category_order;
   for (const auto& entry : GetRegistryStorage()) {
-    if (entry.getter() != entry.default_value) {
+    if (entry.getter() == entry.default_value) continue;
+    if (std::find(category_order.begin(), category_order.end(), entry.category) ==
+        category_order.end()) {
+      category_order.push_back(entry.category);
+    }
+  }
+
+  std::string result;
+  for (const auto& category : category_order) {
+    std::string body;
+    for (const auto& entry : GetRegistryStorage()) {
+      if (entry.category != category || entry.getter() == entry.default_value) continue;
       if (entry.type == FlagType::String) {
-        result += entry.name + " = \"" + EscapeTomlBasicString(entry.getter()) + "\"\n";
+        body += entry.name + " = \"" + EscapeTomlBasicString(entry.getter()) + "\"\n";
       } else {
-        result += entry.name + " = " + entry.getter() + "\n";
+        body += entry.name + " = " + entry.getter() + "\n";
       }
     }
+    if (body.empty()) continue;
+    if (!result.empty()) result += "\n";
+    result += "[\"" + EscapeTomlBasicString(category) + "\"]\n" + body;
   }
   return result;
 }
@@ -669,7 +690,7 @@ void LoadConfig(const std::filesystem::path& config_path) {
 
   try {
     auto config = toml::parse_file(config_path.string());
-    ApplyTomlTable(config, "");
+    ApplyTomlTable(config);
     REXLOG_DEBUG("Loaded config from {}", config_path.string());
   } catch (const toml::parse_error& err) {
     // This runs before InitLogging sets up the log file sink (config loads first so log cvars
