@@ -32,6 +32,15 @@ REXCVAR_DEFINE_BOOL(host_present_from_non_ui_thread, true, "UI/Presenter",
 REXCVAR_DEFINE_BOOL(present_letterbox, true, "UI/Presenter",
                     "Enable letterboxing for non-native aspect ratios");
 
+REXCVAR_DEFINE_BOOL(present_use_actual_aspect, true, "UI/Presenter",
+                    "Use the guest's actual rendered frontbuffer dimensions as its display "
+                    "aspect ratio, instead of the aspect implied by its (possibly "
+                    "console-preset-snapped) reported video mode. A no-op when the two already "
+                    "match (the common case); matters for titles patched to render at a wider "
+                    "aspect than their reported video mode claims, where using the reported "
+                    "aspect would letterbox/crop a frame that's already correctly composed for "
+                    "the real window.");
+
 REXCVAR_DEFINE_INT32(present_safe_area_x, 90, "UI/Presenter",
                      "Horizontal safe area percentage (0-100)")
     .range(0, 100);

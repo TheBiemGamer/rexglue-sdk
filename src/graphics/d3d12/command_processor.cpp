@@ -29,8 +29,14 @@
 #include <rex/kernel/xboxkrnl/video.h>
 #include <rex/logging.h>
 #include <rex/memory/utils.h>
+#include <rex/graphics/video_mode_util.h>
 #include <rex/ui/d3d12/d3d12_presenter.h>
 #include <rex/ui/d3d12/d3d12_util.h>
+
+// Defined in ui/presenter.cpp.
+REXCVAR_DECLARE(bool, present_use_actual_aspect);
+// Defined in ui/window.cpp.
+REXCVAR_DECLARE(std::string, resolution);
 
 REXCVAR_DEFINE_BOOL(d3d12_bindless, true, "GPU/D3D12", "Use bindless resources where available")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
@@ -1984,6 +1990,24 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbu
   kernel::xboxkrnl::VdQueryVideoMode(&video_mode);
   uint32_t display_width = std::max(uint32_t(1), uint32_t(video_mode.display_width));
   uint32_t display_height = std::max(uint32_t(1), uint32_t(video_mode.display_height));
+  if (REXCVAR_GET(present_use_actual_aspect)) {
+    // NOT guest_output_width/height: those are the guest's own internal render-target
+    // dimensions (from the swap packet), not the real host window size -- using them here
+    // would just substitute one guest-side aspect source for another. The 'resolution' cvar
+    // is the actual configured window size (the same source the camera-FOV hook uses), so
+    // anchor both fixes to the same ground truth.
+    int32_t configured_width = 0;
+    int32_t configured_height = 0;
+    if (rex::graphics::video_mode_util::TryParseResolutionPreset(
+            REXCVAR_GET(resolution), configured_width, configured_height) &&
+        configured_width > 0 && configured_height > 0) {
+      display_width = uint32_t(configured_width);
+      display_height = uint32_t(configured_height);
+    } else {
+      display_width = guest_output_width;
+      display_height = guest_output_height;
+    }
+  }
 
   presenter->RefreshGuestOutput(
       guest_output_width, guest_output_height, display_width, display_height,
