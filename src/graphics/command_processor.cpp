@@ -961,6 +961,11 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
   IssueSwap(frontbuffer_ptr, frontbuffer_width, frontbuffer_height);
 
   ++counter_;
+  // Dedicated presented-guest-frame counter for FPS/frametime reporting --
+  // deliberately not shared with counter_ above, which also advances on
+  // every vblank tick (see GraphicsSystem::MarkVblank) and would otherwise
+  // double-count and inflate any FPS computed from it.
+  guest_frame_count_.fetch_add(1, std::memory_order_relaxed);
   return true;
 }
 

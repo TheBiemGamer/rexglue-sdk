@@ -316,6 +316,10 @@ void GraphicsSystem::DispatchInterruptCallback(uint32_t source, uint32_t cpu) {
                                          rex::countof(args));
 }
 
+uint64_t GraphicsSystem::guest_frame_count() const {
+  return command_processor_ ? command_processor_->guest_frame_count() : 0;
+}
+
 void GraphicsSystem::MarkVblank() {
   // TODO: Enable profiling once ported
   // SCOPE_profile_cpu_f("gpu");

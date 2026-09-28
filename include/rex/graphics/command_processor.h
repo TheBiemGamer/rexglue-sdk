@@ -87,6 +87,15 @@ class CommandProcessor {
   uint32_t counter() const { return counter_; }
   void increment_counter() { counter_++; }
 
+  // Count of presented guest frames only (incremented once per XE_SWAP packet
+  // actually processed, i.e. once per IssueSwap()). Unlike counter_ above --
+  // which also advances on every vblank tick so the guest sees CP progress --
+  // this is dedicated to FPS/frametime reporting and must not be touched by
+  // anything other than a real guest swap. Written from the command processor
+  // thread; read from any thread (e.g. the UI thread for the debug overlay),
+  // so it's atomic.
+  uint64_t guest_frame_count() const { return guest_frame_count_.load(std::memory_order_relaxed); }
+
   Shader* active_vertex_shader() const { return active_vertex_shader_; }
   Shader* active_pixel_shader() const { return active_pixel_shader_; }
 
@@ -244,6 +253,7 @@ class CommandProcessor {
   std::vector<uint32_t> me_bin_;
 
   uint32_t counter_ = 0;
+  std::atomic<uint64_t> guest_frame_count_{0};
 
   uint32_t primary_buffer_ptr_ = 0;
   uint32_t primary_buffer_size_ = 0;

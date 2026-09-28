@@ -57,6 +57,11 @@ class IGraphicsSystem {
   virtual ui::GraphicsProvider* provider() const { return nullptr; }
   virtual ui::Presenter* presenter() const { return nullptr; }
 
+  // Count of presented guest frames (guest swaps) only -- see
+  // CommandProcessor::guest_frame_count() for what does and doesn't advance
+  // it. Used for the debug overlay's guest FPS/frametime readout.
+  virtual uint64_t guest_frame_count() const { return 0; }
+
   // Guest GPU services reached from the xboxkrnl Vd* exports.
   virtual void SetInterruptCallback(uint32_t callback, uint32_t user_data) {
     (void)callback;
