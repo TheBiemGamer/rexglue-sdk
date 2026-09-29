@@ -112,6 +112,17 @@ else()
 endif()
 add_subdirectory("${fidelityfx_SOURCE_DIR}/ffx-api" "${fidelityfx_BINARY_DIR}/ffx-api" EXCLUDE_FROM_ALL)
 
+# ffx_api_dll.rc is UTF-16. With a clang toolchain CMake preprocesses resource scripts with
+# clang first, which rejects UTF-16 input, so the build fails. The script only adds version info to
+# the DLL, so drop it from the FidelityFX targets.
+foreach(_rexglue_ffx_target amd_fidelityfx_dx12 amd_fidelityfx_vk)
+    if(TARGET ${_rexglue_ffx_target})
+        get_target_property(_rexglue_ffx_sources ${_rexglue_ffx_target} SOURCES)
+        list(FILTER _rexglue_ffx_sources EXCLUDE REGEX "\\.rc$")
+        set_target_properties(${_rexglue_ffx_target} PROPERTIES SOURCES "${_rexglue_ffx_sources}")
+    endif()
+endforeach()
+
 # The upstream FidelityFX targets expose source-tree include paths in
 # INTERFACE_INCLUDE_DIRECTORIES, which breaks our install export checks.
 # We only link against these targets internally, so no public includes are
