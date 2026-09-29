@@ -39,6 +39,8 @@ REXCVAR_DEFINE_BOOL(store_shaders, true, "GPU",
                     "Store shaders persistently and load them when loading games to avoid "
                     "runtime spikes and freezes when playing the game not for the first time.");
 
+REXCVAR_DECLARE(int32_t, frame_rate_limit);
+
 namespace {
 
 rex::graphics::CommandProcessor::SwapPostEffect ParseSwapPostEffect(
@@ -146,22 +148,40 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
                                  reinterpret_cast<runtime::MMIOReadCallback>(ReadRegisterThunk),
                                  reinterpret_cast<runtime::MMIOWriteCallback>(WriteRegisterThunk));
 
-  // Guest vblank timer based on the configured guest video mode.
+  // Guest vblank timer based on the configured guest video mode. This is the emulated
+  // console's own internal timing -- real Xbox 360 hardware raises vblank at a fixed rate
+  // regardless of whether the picture is actually being displayed in sync with it, and most
+  // guest titles (this one included) pace their simulation off vblank interrupts. It must
+  // never speed up just because host presentation isn't waiting for vsync: the `vsync` cvar
+  // (and `frame_rate_limit`) control host presentation only -- whether the picture tears or
+  // how fast it's blitted to the monitor -- not the console's own clock. Previously this tied
+  // vblank rate to the `vsync` cvar (10x higher, uncapped, when vsync was off), which sped up
+  // gameplay itself right along with the picture -- confirmed live: disabling vsync noticeably
+  // sped up simulation, and setting frame_rate_limit instead did nothing to fix it, since that
+  // cvar only throttles host present and this thread never looked at it.
   vsync_worker_running_ = true;
   vsync_worker_thread_ = system::object_ref<system::XHostThread>(
       new system::XHostThread(kernel_state_, 128 * 1024, 0, [this]() {
         system::X_VIDEO_MODE video_mode;
         kernel::xboxkrnl::VdQueryVideoMode(&video_mode);
         double refresh_rate_hz = std::max(1.0, double(float(video_mode.refresh_rate)));
+        // If frame_rate_limit asks for more than the configured video_mode_refresh_rate, raise
+        // the guest vblank rate to match automatically -- otherwise this thread would still only
+        // mark vblank at the old (lower) rate, silently capping anything paced off vblank
+        // interrupts even though ThrottleGuestTickRate (xboxkrnl_video.cpp) and the host present
+        // loop (d3d12_presenter.cpp) were both told to go faster. No separate cvar to keep in
+        // sync by hand: frame_rate_limit alone is enough.
+        const int32_t frame_rate_limit_value = REXCVAR_GET(frame_rate_limit);
+        if (frame_rate_limit_value > 0) {
+          refresh_rate_hz = std::max(refresh_rate_hz, double(frame_rate_limit_value));
+        }
         uint64_t guest_tick_frequency = chrono::Clock::guest_tick_frequency();
         uint64_t vsync_interval_ticks =
             std::max(uint64_t(1), uint64_t(double(guest_tick_frequency) / refresh_rate_hz));
-        uint64_t no_vsync_interval_ticks = std::max(uint64_t(1), guest_tick_frequency / 1000);
         uint64_t last_frame_time = chrono::Clock::QueryGuestTickCount();
         while (vsync_worker_running_) {
           uint64_t current_time = chrono::Clock::QueryGuestTickCount();
-          uint64_t interval_ticks =
-              REXCVAR_GET(vsync) ? vsync_interval_ticks : no_vsync_interval_ticks;
+          uint64_t interval_ticks = vsync_interval_ticks;
           while (current_time - last_frame_time >= interval_ticks) {
             MarkVblank();
             last_frame_time += interval_ticks;

@@ -14,7 +14,10 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <optional>
 #include <string>
+#include <thread>
 
 #include <rex/cvar.h>
 #include <rex/graphics/pipeline/texture/info.h>
@@ -32,6 +35,34 @@
 #include <rex/system/kernel_state.h>
 #include <rex/system/xtypes.h>
 #include <rex/ui/flags.h>
+
+// This game (like most Xbox 360-era titles) doesn't gate its own Update/Render/Present cycle on
+// any emulated timer at all -- VdSwap (below) just writes a swap packet into the GPU ring buffer
+// and returns immediately, since on real hardware the D3D9 Present() call implicitly blocked
+// until the next vblank, and the guest's own simulation/physics code takes that fixed ~30Hz
+// cadence for granted (e.g. movement-vs-distance checks multiplying speed by a baked-in 1/30s
+// constant -- found at rodata 0x820D011C, referenced from gameplay-adjacent code). With VdSwap
+// non-blocking, the guest's per-frame function (found at 0x822FBFC8, one of several similar
+// per-game-state frame functions) -- which dispatches the current game state's Update via a
+// vtable call, does its rendering, and calls this VdSwap all synchronously back-to-back with no
+// wait anywhere in between -- runs exactly as fast as the host CPU+GPU allow. That's the second
+// half of the "gameplay speeds up" bug (the first half, the vblank *interrupt* rate itself running
+// fast when vsync was off, was already fixed in graphics_system.cpp): the user separately reported
+// gameplay speeding up from a faster resolution_scale alone, vsync/frame_rate_limit untouched --
+// consistent with nothing above VdSwap ever waiting on real time or vblank in the first place.
+//
+// Reproducing the original console's implicit cap here -- rather than deeper in guest PPC code --
+// keeps the fix host-side and low-risk: it doesn't touch any guest simulation/physics math, just
+// makes this already-host-implemented kernel export block like Present() did on real hardware.
+//
+// This shares the *same* frame_rate_limit cvar the host present loop uses (d3d12_presenter.cpp),
+// rather than a separate guest-only cvar, so there is one knob: at frame_rate_limit=0 (default)
+// the guest ticks at the safe console-authentic 30Hz regardless of host present rate; setting
+// frame_rate_limit=N raises both the host present cap and the guest tick rate to N together, the
+// same tradeoff the Cemu (Wii U) build's graphic-pack FPS mod makes with its single vsyncFrequency
+// setting -- movement/timing math that assumes 30Hz can scale with N, this cvar alone doesn't fix
+// that, see the 0x820D011C constant noted above for where such a fix would need to go.
+REXCVAR_DECLARE(int32_t, frame_rate_limit);
 
 namespace {
 // Display gamma type: 0 - linear, 1 - sRGB (CRT), 2 - BT.709 (HDTV), 3 - power
@@ -81,6 +112,38 @@ float GetConfiguredVideoModeRefreshRate() {
 void WarnNoGpuEmulation(const char* export_name, std::atomic<bool>& warned) {
   if (!warned.exchange(true)) {
     REXKRNL_WARN("{}: no GPU emulation loaded (gpu_plugin not set); call ignored", export_name);
+  }
+}
+
+// Blocks the calling (guest) thread until at least 1/target_hz seconds have passed since the
+// previous call, mirroring the implicit vblank-wait real Xbox 360 hardware performed inside
+// Present(). See the frame_rate_limit comment above (d3d12_presenter.cpp) for why this exists and
+// why it shares that cvar rather than having its own. Only ever called from VdSwap, always from
+// the guest's own render thread -- a plain function-local static (no synchronization) is
+// sufficient since nothing else touches it concurrently.
+void ThrottleGuestTickRate() {
+  const int32_t frame_rate_limit_value = REXCVAR_GET(frame_rate_limit);
+  // frame_rate_limit=0 means "unlimited" for the host present loop, but the guest sim can never
+  // safely go fully uncapped (that's the render-speed-coupled gameplay speed bug) -- fall back to
+  // the console-authentic 30Hz default in that case. Only an explicit positive frame_rate_limit
+  // raises the guest tick rate, matching the host present cap.
+  const double target_hz = frame_rate_limit_value > 0 ? double(frame_rate_limit_value) : 30.0;
+  static std::optional<std::chrono::steady_clock::time_point> next_tick_time;
+  const auto tick_duration =
+      std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+          std::chrono::duration<double>(1.0 / target_hz));
+  const auto now = std::chrono::steady_clock::now();
+  if (!next_tick_time) {
+    next_tick_time = now + tick_duration;
+    return;
+  }
+  if (now < *next_tick_time) {
+    std::this_thread::sleep_until(*next_tick_time);
+    *next_tick_time += tick_duration;
+  } else {
+    // Fell behind (e.g. a slow frame, or a long loading stall) -- don't try to burst-catch-up,
+    // just resync to now so a single slow frame doesn't cause a run of instant frames afterward.
+    *next_tick_time = now + tick_duration;
   }
 }
 }  // namespace
@@ -528,6 +591,11 @@ void VdSwap_entry(mapped_void buffer_ptr,      // ptr into primary ringbuffer
   for (uint32_t i = offset; i < 64; i++) {
     dwords[i] = xenos::MakePacketType2();
   }
+
+  // See the frame_rate_limit comment near the top of this file: this reproduces the implicit
+  // vblank-wait real Present() had, since nothing else in the guest's synchronous
+  // Update+Render+Present loop otherwise waits on real time or vblank.
+  ThrottleGuestTickRate();
 }
 
 void RegisterVideoExports(rex::runtime::ExportResolver* export_resolver,

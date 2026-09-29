@@ -37,7 +37,12 @@ REXCVAR_DEFINE_BOOL(d3d12_allow_variable_refresh_rate_and_tearing, true, "UI/D3D
 
 REXCVAR_DEFINE_INT32(frame_rate_limit, 0, "Graphics",
                      "Caps host frame rate to this many frames per second by padding each "
-                     "PaintAndPresent call. 0 = unlimited (present as fast as the GPU allows).")
+                     "PaintAndPresent call. 0 = unlimited (present as fast as the GPU allows). "
+                     "Also caps the guest's own Update+Render+Present tick rate the same way (see "
+                     "ThrottleGuestTickRate in xboxkrnl_video.cpp) -- at 0 the guest still ticks "
+                     "at a safe 30Hz default, but a positive value raises both together, since "
+                     "some of the game's own gameplay timing math assumes a fixed ~30Hz cadence "
+                     "and doesn't automatically scale with a higher rate.")
     .range(0, 1000)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
