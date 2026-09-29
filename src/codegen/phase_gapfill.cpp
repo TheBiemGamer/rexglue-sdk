@@ -9,8 +9,10 @@
  *              See LICENSE file in the project root for full license text.
  */
 
+#include "gapfill_split.h"
 #include "ppc/instruction.h"
 
+#include <optional>
 #include <unordered_set>
 
 #include <rex/codegen/phases.h>
@@ -35,53 +37,20 @@ namespace {
 // GapFill to register uncovered code regions
 //=============================================================================
 
-// Split a code region into function segments based on terminators (blr, tail calls).
-std::vector<CodeRegion> splitRegionOnTerminators(
-    const CodeRegion& region, const BinaryView& binary,
-    const std::unordered_set<uint32_t>& knownCallables) {
-  std::vector<CodeRegion> segments;
-  uint32_t segmentStart = region.start;
-
-  for (uint32_t addr = region.start; addr < region.end; addr += 4) {
-    const uint8_t* data = binary.translate(addr);
-    if (!data)
-      break;
-
-    uint32_t raw = load_and_swap<uint32_t>(data);
-    auto decoded = decode_instruction(addr, raw);
-    bool shouldSplit = false;
-    const char* reason = nullptr;
-
-    // Check for terminators
-    if (decoded.is_return()) {
-      shouldSplit = true;
-      reason = "blr";
-    } else if (decoded.opcode == Opcode::b && decoded.branch_target.has_value()) {
-      uint32_t target = decoded.branch_target.value();
-      // Don't split on tail recursion (branch to own segment start)
-      if (target != segmentStart && knownCallables.contains(target)) {
-        shouldSplit = true;
-        reason = "tail call";
-      }
-    }
-
-    if (shouldSplit) {
-      uint32_t segmentEnd = addr + 4;
-      if (segmentEnd > segmentStart) {
-        segments.push_back({segmentStart, segmentEnd});
-        REXCODEGEN_TRACE("GapFill: split segment 0x{:08X}-0x{:08X} ({} at 0x{:08X})", segmentStart,
-                         segmentEnd, reason, addr);
-      }
-      segmentStart = segmentEnd;
-    }
-  }
-
-  // Handle remaining code after last terminator
-  if (segmentStart < region.end) {
-    segments.push_back({segmentStart, region.end});
-  }
-
-  return segments;
+// True if the word at `addr` is data sitting in a code region rather than an instruction: known
+// jump table data, an absolute code pointer (an undetected jump table's entry), or a word that
+// doesn't decode as any instruction (an offset table's bytes).
+bool isTableData(const BinaryView& binary, const std::unordered_set<uint32_t>& jumpTableWords,
+                 uint32_t addr) {
+  if (jumpTableWords.contains(addr))
+    return true;
+  const uint8_t* data = binary.translate(addr);
+  if (!data)
+    return true;
+  uint32_t raw = load_and_swap<uint32_t>(data);
+  if ((raw & 3) == 0 && binary.isExecutable(raw))
+    return true;
+  return decode_instruction(addr, raw).opcode == Opcode::kUnknown;
 }
 
 // Check if address looks like exception handler data (handler ptr + rdata ptr)
@@ -119,7 +88,8 @@ bool looksLikeExceptionData(const BinaryView& binary, const FunctionGraph& graph
   return false;
 }
 
-void gapFillCodeRegions(CodegenContext& ctx) {
+// Returns how many new functions were registered.
+size_t gapFillCodeRegions(CodegenContext& ctx) {
   REXCODEGEN_TRACE("Analyze: checking for uncovered code regions...");
 
   auto& graph = ctx.graph;
@@ -135,9 +105,30 @@ void gapFillCodeRegions(CodegenContext& ctx) {
   size_t gapsFound = 0;
   size_t segmentsCreated = 0;
 
+  // Every word of every jump table analysis found, so GapFill never starts a function in one.
+  // Entry width isn't recorded, so each table is assumed to use 4-byte entries: an over-estimate
+  // for byte/halfword offset tables only makes a following function start be missed, as before.
+  std::unordered_set<uint32_t> jumpTableWords;
+  for (const auto& [addr, node] : graph.functions()) {
+    for (const auto& jt : node->jumpTables()) {
+      for (size_t i = 0; i < jt.targets.size(); i++) {
+        jumpTableWords.insert(jt.tableAddress + static_cast<uint32_t>(i * 4));
+      }
+    }
+  }
+  auto readWord = [&binary](uint32_t addr) -> std::optional<uint32_t> {
+    const uint8_t* data = binary.translate(addr);
+    if (!data)
+      return std::nullopt;
+    return load_and_swap<uint32_t>(data);
+  };
+  auto tableData = [&binary, &jumpTableWords](uint32_t addr) {
+    return isTableData(binary, jumpTableWords, addr);
+  };
+
   for (const auto& region : scan.codeRegions) {
-    // Split region on terminators (blr, tail calls), then check each segment
-    auto segments = splitRegionOnTerminators(region, binary, knownCallables);
+    // Split region on terminators (blr, bctr, tail calls), then check each segment
+    auto segments = SplitRegionOnTerminators(region, readWord, knownCallables, tableData);
 
     for (const auto& segment : segments) {
       // Skip if this segment's start is already a registered function entry
@@ -170,6 +161,7 @@ void gapFillCodeRegions(CodegenContext& ctx) {
   } else {
     REXCODEGEN_TRACE("Analyze: no uncovered regions found");
   }
+  return segmentsCreated;
 }
 
 //=============================================================================
@@ -218,14 +210,23 @@ namespace phases {
 
 VoidResult GapFill(CodegenContext& ctx, ProgressReporter* reporter) {
   (void)reporter;
-  gapFillCodeRegions(ctx);
+  // Repeat until nothing new is found: a pass only splits on a b tail call whose forward target is
+  // already known, so a thunk that jumps to a function this same pass discovers is only split off
+  // (and registered) on the next pass.
+  constexpr int kMaxPasses = 8;
+  for (int pass = 0; pass < kMaxPasses; pass++) {
+    size_t registered = gapFillCodeRegions(ctx);
 
-  // Discover blocks for gap-filled functions
-  auto known = buildKnownFunctions(ctx.graph, /*excludeGapFill=*/true);
-  size_t discovered = discoverPendingFunctions(ctx, known);
-  REXCODEGEN_TRACE("Analyze: discovered blocks for {} gap-filled functions", discovered);
+    // Discover blocks for gap-filled functions
+    auto known = buildKnownFunctions(ctx.graph, /*excludeGapFill=*/true);
+    size_t discovered = discoverPendingFunctions(ctx, known);
+    REXCODEGEN_TRACE("Analyze: pass {}: discovered blocks for {} gap-filled functions", pass + 1,
+                     discovered);
 
-  cleanupAbsorbedGapFills(ctx);
+    cleanupAbsorbedGapFills(ctx);
+    if (registered == 0)
+      break;
+  }
 
   return Ok();
 }

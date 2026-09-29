@@ -22,6 +22,7 @@ set(CODEGEN_CORE_SOURCES
     phase_register.cpp
     phase_scan.cpp
     phase_discover.cpp
+    gapfill_split.cpp
     phase_gapfill.cpp
     phase_merge.cpp
     phase_validate.cpp
