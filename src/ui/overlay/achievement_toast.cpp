@@ -20,7 +20,14 @@ namespace rex::ui {
 AchievementToastDialog::AchievementToastDialog(ImGuiDrawer* drawer,
                                                ImmediateDrawer* immediate_drawer,
                                                rex::Runtime* runtime)
-    : AchievementNotificationDialog(drawer), icon_cache_(immediate_drawer, runtime) {}
+    : AchievementNotificationDialog(drawer), icon_cache_(immediate_drawer, runtime) {
+  // Stay unregistered until there's a toast to show (ReXApp re-adds this dialog on the UI thread
+  // when an achievement event arrives). While any ImGui dialog is registered, the presenter must
+  // paint from the UI thread instead of presenting each guest frame directly from the guest
+  // output thread, and the UI-thread path drops/duplicates guest frames under a frame rate cap --
+  // an always-registered, usually-empty toast forced that path for the whole session.
+  drawer->RemoveDialog(this);
+}
 
 AchievementToastDialog::~AchievementToastDialog() {}
 
@@ -48,6 +55,9 @@ void AchievementToastDialog::OnDraw(ImGuiIO& io) {
       }
     }
     if (queue_.empty()) {
+      // Nothing left to show: unregister (safe while dialogs are being drawn) so presentation can
+      // go back to the direct guest-output-thread path. See the constructor.
+      imgui_drawer()->RemoveDialog(this);
       return;
     }
     toast = queue_.front();

@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <utility>
 
 #include <rex/assert.h>
@@ -25,6 +26,8 @@
 #include <ffx_api/ffx_api.h>
 #include <ffx_api/ffx_upscale.h>
 #endif
+
+REXCVAR_DECLARE(int32_t, frame_rate_limit);
 
 REXCVAR_DEFINE_BOOL(host_present_from_non_ui_thread, true, "UI/Presenter",
                     "Allow presentation from non-UI thread");
@@ -492,7 +495,27 @@ void Presenter::PaintFromUIThread(bool force_paint) {
       // doesn't limit the frame rate.
       WaitForUITickFromUIThread();
 
-      paint_result = PaintAndPresent(draw_ui);
+      // With a frame rate cap, present only when there's a new guest frame (or on explicit force
+      // paints, or after a short fallback so the UI stays responsive if the guest stops
+      // refreshing, e.g. during a stall). Otherwise UI-only repaints at the monitor's tick rate
+      // re-present the same guest frame, so each guest frame stays on screen for an uneven
+      // number of host refreshes -- measured ~136 presents/s with 4-9ms gaps at a 60 cap, visible
+      // as uneven frame pacing. Skipped paints re-request at the next UI tick, which is cheap.
+      const auto now = std::chrono::steady_clock::now();
+      const uint64_t guest_output_refresh_count =
+          guest_output_refresh_count_.load(std::memory_order_acquire);
+      const bool new_guest_frame =
+          guest_output_refresh_count != ui_thread_last_presented_guest_output_refresh_count_;
+      const bool skip_ui_only_present =
+          REXCVAR_GET(frame_rate_limit) > 0 && draw_ui && !force_paint && !new_guest_frame &&
+          now - ui_thread_last_present_time_ < std::chrono::milliseconds(100);
+      if (skip_ui_only_present) {
+        request_repaint_at_tick = true;
+      } else {
+        ui_thread_last_presented_guest_output_refresh_count_ = guest_output_refresh_count;
+        ui_thread_last_present_time_ = now;
+        paint_result = PaintAndPresent(draw_ui);
+      }
       if (surface_paint_connection_state_ == SurfacePaintConnectionState::kConnectedOutdated) {
         // Request another PaintFromUIThread which will try to recover from the
         // outdated connection in the next frame (not immediately, so the
@@ -601,6 +624,7 @@ bool Presenter::RefreshGuestOutput(
       last_acquired_and_ready,
       (last_acquired_and_ready & 3) | (guest_output_mailbox_writable_ << 2),
       std::memory_order_acq_rel, std::memory_order_relaxed)) {}
+  guest_output_refresh_count_.fetch_add(1, std::memory_order_release);
   // Now, it's known that `ready == writable` on the host presentation side.
   // Take the next `writable` with this assumption about its current value in
   // mind.

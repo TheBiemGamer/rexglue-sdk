@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <climits>
 #include <cmath>
 #include <condition_variable>
@@ -951,6 +952,14 @@ class Presenter {
   // These two images can be accessed by painting in parallel, in an unordered
   // way, with guest output refreshing.
   std::atomic<uint32_t> guest_output_mailbox_acquired_and_ready_{0};
+  // Incremented every time RefreshGuestOutput publishes a new "ready" image. With frame_rate_limit
+  // set, the UI thread presents only when this has changed since its last present (or after a
+  // short fallback interval), so UI-only repaints don't present the same guest frame extra times
+  // at uneven intervals between real guest frames.
+  std::atomic<uint64_t> guest_output_refresh_count_{0};
+  // UI thread only.
+  uint64_t ui_thread_last_presented_guest_output_refresh_count_ = 0;
+  std::chrono::steady_clock::time_point ui_thread_last_present_time_{};
   // The "writable" image is different than both "acquired" and "ready" and is
   // accessible only by the guest output refreshing - it's the image that the
   // refresher may write to.

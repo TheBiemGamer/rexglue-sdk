@@ -36,13 +36,12 @@ REXCVAR_DEFINE_BOOL(d3d12_allow_variable_refresh_rate_and_tearing, true, "UI/D3D
                     "Allow variable refresh rate and tearing");
 
 REXCVAR_DEFINE_INT32(frame_rate_limit, 0, "Graphics",
-                     "Caps host frame rate to this many frames per second by padding each "
-                     "PaintAndPresent call. 0 = unlimited (present as fast as the GPU allows). "
-                     "Also caps the guest's own Update+Render+Present tick rate the same way (see "
-                     "ThrottleGuestTickRate in xboxkrnl_video.cpp) -- at 0 the guest still ticks "
-                     "at a safe 30Hz default, but a positive value raises both together, since "
-                     "some of the game's own gameplay timing math assumes a fixed ~30Hz cadence "
-                     "and doesn't automatically scale with a higher rate.")
+                     "Caps the frame rate to this many frames per second. Paces the guest's own "
+                     "Update+Render+Present tick (see ThrottleGuestTickRate in "
+                     "xboxkrnl_video.cpp); the host presents each guest frame as it arrives, so "
+                     "this one limiter sets the displayed frame rate too. 0 = the guest ticks at "
+                     "a safe 30Hz default. Some of the game's own gameplay timing math assumes a "
+                     "fixed ~30Hz cadence and doesn't automatically scale with a higher rate.")
     .range(0, 1000)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
@@ -568,8 +567,6 @@ void D3D12Presenter::PaintContext::DestroySwapChain() {
 }
 
 Presenter::PaintResult D3D12Presenter::PaintAndPresentImpl(bool execute_ui_drawers) {
-  const auto frame_start_time = std::chrono::steady_clock::now();
-
   // Begin the command list with the command allocator not currently potentially
   // used on the GPU.
   UINT64 current_paint_submission = paint_context_.paint_submission_tracker.GetCurrentSubmission();
@@ -1178,15 +1175,10 @@ Presenter::PaintResult D3D12Presenter::PaintAndPresentImpl(bool execute_ui_drawe
   // Discord server.
   paint_context_.present_submission_tracker.NextSubmission();
 
-  const int32_t frame_rate_limit_value = REXCVAR_GET(frame_rate_limit);
-  if (frame_rate_limit_value > 0) {
-    const auto target_frame_duration =
-        std::chrono::duration<double>(1.0 / double(frame_rate_limit_value));
-    const auto elapsed = std::chrono::steady_clock::now() - frame_start_time;
-    if (elapsed < target_frame_duration) {
-      std::this_thread::sleep_for(target_frame_duration - elapsed);
-    }
-  }
+  // No frame_rate_limit sleep here: presents are driven by new guest frames, which
+  // ThrottleGuestTickRate (xboxkrnl_video.cpp) already paces. A second limiter here, on its own
+  // clock, drifted against that one and dropped ~4-5 guest frames/s at a 60 FPS cap (measured:
+  // ~60.5 guest swaps/s vs ~56 presents/s), visible as stutter and VRR brightness flicker.
 
   switch (present_result) {
     case DXGI_ERROR_DEVICE_REMOVED:

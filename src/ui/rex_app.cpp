@@ -440,10 +440,18 @@ void ReXApp::LaunchModule() {
         runtime_->kernel_state()) {
       std::weak_ptr<ui::AchievementNotificationDialog> notification = achievement_notification_;
       achievement_notification_listener_ = achievements().RegisterNotificationCallback(
-          [notification](const rex::system::AchievementEvent& event) {
+          [this, notification](const rex::system::AchievementEvent& event) {
             if (auto dialog = notification.lock()) {
               dialog->Push(event);
             }
+            // The default toast unregisters itself while idle (see AchievementToastDialog);
+            // re-register it on the UI thread so the new toast gets drawn. AddDialog ignores a
+            // dialog that is already registered.
+            app_context().CallInUIThread([this, notification]() {
+              if (auto dialog = notification.lock()) {
+                imgui_drawer_->AddDialog(dialog.get());
+              }
+            });
           });
     }
 

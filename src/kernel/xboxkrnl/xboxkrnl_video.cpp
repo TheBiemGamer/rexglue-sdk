@@ -36,6 +36,17 @@
 #include <rex/system/xtypes.h>
 #include <rex/ui/flags.h>
 
+#include <rex/platform.h>
+#if REX_PLATFORM_WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 // This game (like most Xbox 360-era titles) doesn't gate its own Update/Render/Present cycle on
 // any emulated timer at all -- VdSwap (below) just writes a swap packet into the GPU ring buffer
 // and returns immediately, since on real hardware the D3D9 Present() call implicitly blocked
@@ -115,12 +126,52 @@ void WarnNoGpuEmulation(const char* export_name, std::atomic<bool>& warned) {
   }
 }
 
-// Blocks the calling (guest) thread until at least 1/target_hz seconds have passed since the
-// previous call, mirroring the implicit vblank-wait real Xbox 360 hardware performed inside
-// Present(). See the frame_rate_limit comment above (d3d12_presenter.cpp) for why this exists and
-// why it shares that cvar rather than having its own. Only ever called from VdSwap, always from
-// the guest's own render thread -- a plain function-local static (no synchronization) is
-// sufficient since nothing else touches it concurrently.
+// Waits until `deadline` with sub-millisecond precision: a coarse OS sleep up to ~1ms before the
+// deadline, then a spin for the rest. A plain sleep_until overshoots by 1-2.5ms on Windows
+// (measured), which showed up as uneven frame times -- visible as brightness flicker on VRR OLED
+// panels at a 60 FPS cap. Same approach frame limiters like RivaTuner use.
+void PreciseSleepUntil(std::chrono::steady_clock::time_point deadline) {
+  constexpr auto kSpinMargin = std::chrono::microseconds(1000);
+#if REX_PLATFORM_WIN32
+  // High-resolution waitable timer (Windows 10 1803+): wakes within ~0.5ms, unlike Sleep(), which
+  // is bound to the system timer tick. Falls back to sleep_until if unavailable.
+  thread_local HANDLE timer = CreateWaitableTimerExW(
+      nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+#endif
+  const auto coarse_deadline = deadline - kSpinMargin;
+  auto now = std::chrono::steady_clock::now();
+  if (now < coarse_deadline) {
+#if REX_PLATFORM_WIN32
+    if (timer) {
+      // Negative = relative, in 100ns units.
+      LARGE_INTEGER due;
+      due.QuadPart = -std::chrono::duration_cast<std::chrono::duration<int64_t, std::ratio<1, 10000000>>>(
+                          coarse_deadline - now).count();
+      if (SetWaitableTimerEx(timer, &due, 0, nullptr, nullptr, nullptr, 0)) {
+        WaitForSingleObject(timer, INFINITE);
+      } else {
+        std::this_thread::sleep_until(coarse_deadline);
+      }
+    } else {
+      std::this_thread::sleep_until(coarse_deadline);
+    }
+#else
+    std::this_thread::sleep_until(coarse_deadline);
+#endif
+  }
+  while (std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::yield();
+  }
+}
+
+// Blocks the calling (guest) thread until the next frame deadline, mirroring the implicit
+// vblank-wait real Xbox 360 hardware performed inside Present(). See the frame_rate_limit comment
+// above (d3d12_presenter.cpp) for why this exists and why it shares that cvar rather than having
+// its own. This is the only frame limiter: the host presenter shows each guest frame as soon as it
+// arrives, so pacing here is what the monitor sees. Deadlines are absolute (next += period), so
+// wake-up jitter never accumulates into drift. Only ever called from VdSwap, always from the
+// guest's own render thread -- a plain function-local static (no synchronization) is sufficient
+// since nothing else touches it concurrently.
 void ThrottleGuestTickRate() {
   const int32_t frame_rate_limit_value = REXCVAR_GET(frame_rate_limit);
   // frame_rate_limit=0 means "unlimited" for the host present loop, but the guest sim can never
@@ -138,11 +189,15 @@ void ThrottleGuestTickRate() {
     return;
   }
   if (now < *next_tick_time) {
-    std::this_thread::sleep_until(*next_tick_time);
+    PreciseSleepUntil(*next_tick_time);
+    *next_tick_time += tick_duration;
+  } else if (now - *next_tick_time < tick_duration) {
+    // Slightly late (less than one frame): keep the cadence rather than shifting the phase, so
+    // one slightly slow frame doesn't make every later frame land late too.
     *next_tick_time += tick_duration;
   } else {
-    // Fell behind (e.g. a slow frame, or a long loading stall) -- don't try to burst-catch-up,
-    // just resync to now so a single slow frame doesn't cause a run of instant frames afterward.
+    // Fell far behind (e.g. a long loading stall) -- don't try to burst-catch-up, just resync to
+    // now so a single slow frame doesn't cause a run of instant frames afterward.
     *next_tick_time = now + tick_duration;
   }
 }
