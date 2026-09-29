@@ -37,22 +37,6 @@ namespace {
 // GapFill to register uncovered code regions
 //=============================================================================
 
-// True if the word at `addr` is data sitting in a code region rather than an instruction: known
-// jump table data, an absolute code pointer (an undetected jump table's entry), or a word that
-// doesn't decode as any instruction (an offset table's bytes).
-bool isTableData(const BinaryView& binary, const std::unordered_set<uint32_t>& jumpTableWords,
-                 uint32_t addr) {
-  if (jumpTableWords.contains(addr))
-    return true;
-  const uint8_t* data = binary.translate(addr);
-  if (!data)
-    return true;
-  uint32_t raw = load_and_swap<uint32_t>(data);
-  if ((raw & 3) == 0 && binary.isExecutable(raw))
-    return true;
-  return decode_instruction(addr, raw).opcode == Opcode::kUnknown;
-}
-
 // Check if address looks like exception handler data (handler ptr + rdata ptr)
 bool looksLikeExceptionData(const BinaryView& binary, const FunctionGraph& graph, uint32_t addr) {
   const uint8_t* data = binary.translate(addr);
@@ -88,8 +72,9 @@ bool looksLikeExceptionData(const BinaryView& binary, const FunctionGraph& graph
   return false;
 }
 
-// Returns how many new functions were registered.
-size_t gapFillCodeRegions(CodegenContext& ctx) {
+// Returns how many new functions were registered. Segment starts in `removed` (fragments an
+// earlier pass's cleanup found inside another function) are never registered again.
+size_t gapFillCodeRegions(CodegenContext& ctx, const std::unordered_set<uint32_t>& removed) {
   REXCODEGEN_TRACE("Analyze: checking for uncovered code regions...");
 
   auto& graph = ctx.graph;
@@ -106,8 +91,9 @@ size_t gapFillCodeRegions(CodegenContext& ctx) {
   size_t segmentsCreated = 0;
 
   // Every word of every jump table analysis found, so GapFill never starts a function in one.
-  // Entry width isn't recorded, so each table is assumed to use 4-byte entries: an over-estimate
-  // for byte/halfword offset tables only makes a following function start be missed, as before.
+  // Entry width isn't recorded, so each table is assumed to use 4-byte entries; IsLikelyTableData
+  // only trusts such a word when it also looks like a code pointer, so a byte/halfword table's
+  // over-estimated range can't swallow the instruction that follows it.
   std::unordered_set<uint32_t> jumpTableWords;
   for (const auto& [addr, node] : graph.functions()) {
     for (const auto& jt : node->jumpTables()) {
@@ -122,17 +108,25 @@ size_t gapFillCodeRegions(CodegenContext& ctx) {
       return std::nullopt;
     return load_and_swap<uint32_t>(data);
   };
-  auto tableData = [&binary, &jumpTableWords](uint32_t addr) {
-    return isTableData(binary, jumpTableWords, addr);
+  auto isCodeAddress = [&binary](uint32_t addr) { return binary.isExecutable(addr); };
+  auto tableData = [&readWord, &isCodeAddress, &jumpTableWords](uint32_t addr) {
+    return IsLikelyTableData(addr, readWord, isCodeAddress, jumpTableWords);
   };
 
   for (const auto& region : scan.codeRegions) {
     // Split region on terminators (blr, bctr, tail calls), then check each segment
     auto segments = SplitRegionOnTerminators(region, readWord, knownCallables, tableData);
+    auto conditionalTargets = CollectConditionalBranchTargets(region, readWord);
 
     for (const auto& segment : segments) {
-      // Skip if this segment's start is already a registered function entry
-      if (graph.isEntryPoint(segment.start))
+      // Skip if this segment's start is already a registered function entry, or an earlier pass
+      // already found it to be part of another function
+      if (graph.isEntryPoint(segment.start) || removed.contains(segment.start))
+        continue;
+
+      // Skip if a conditional branch lands here: that's a block inside some function (a function
+      // entry is only reached by calls and tail calls, never by a bc)
+      if (conditionalTargets.contains(segment.start))
         continue;
 
       // Skip if this segment's start is inside another function
@@ -168,7 +162,8 @@ size_t gapFillCodeRegions(CodegenContext& ctx) {
 // Cleanup absorbed GAP_FILL functions
 //=============================================================================
 
-void cleanupAbsorbedGapFills(CodegenContext& ctx) {
+// Adds every removed address to `removed`.
+void cleanupAbsorbedGapFills(CodegenContext& ctx, std::unordered_set<uint32_t>& removed) {
   auto& graph = ctx.graph;
   std::vector<uint32_t> toRemove;
 
@@ -197,6 +192,7 @@ void cleanupAbsorbedGapFills(CodegenContext& ctx) {
 
   for (uint32_t addr : toRemove) {
     graph.removeFunction(addr);
+    removed.insert(addr);
   }
 
   if (!toRemove.empty()) {
@@ -214,8 +210,9 @@ VoidResult GapFill(CodegenContext& ctx, ProgressReporter* reporter) {
   // already known, so a thunk that jumps to a function this same pass discovers is only split off
   // (and registered) on the next pass.
   constexpr int kMaxPasses = 8;
+  std::unordered_set<uint32_t> removed;
   for (int pass = 0; pass < kMaxPasses; pass++) {
-    size_t registered = gapFillCodeRegions(ctx);
+    size_t registered = gapFillCodeRegions(ctx, removed);
 
     // Discover blocks for gap-filled functions
     auto known = buildKnownFunctions(ctx.graph, /*excludeGapFill=*/true);
@@ -223,9 +220,13 @@ VoidResult GapFill(CodegenContext& ctx, ProgressReporter* reporter) {
     REXCODEGEN_TRACE("Analyze: pass {}: discovered blocks for {} gap-filled functions", pass + 1,
                      discovered);
 
-    cleanupAbsorbedGapFills(ctx);
+    cleanupAbsorbedGapFills(ctx, removed);
     if (registered == 0)
       break;
+    if (pass + 1 == kMaxPasses) {
+      REXCODEGEN_WARN("GapFill: still registering new functions after {} passes ({} in the last)",
+                      kMaxPasses, registered);
+    }
   }
 
   return Ok();
