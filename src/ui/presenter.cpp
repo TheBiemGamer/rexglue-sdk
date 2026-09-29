@@ -1640,8 +1640,15 @@ void Presenter::WaitForUITickFromUIThread() {
 
 void Presenter::ForceUIThreadPaintTick() {
 #if REX_PLATFORM_WIN32
-  std::scoped_lock<std::mutex> dxgi_ui_tick_lock(dxgi_ui_tick_mutex_);
-  dxgi_ui_tick_force_requested_ = true;
+  {
+    std::scoped_lock<std::mutex> dxgi_ui_tick_lock(dxgi_ui_tick_mutex_);
+    dxgi_ui_tick_force_requested_ = true;
+  }
+  // Wake a UI thread already sleeping in WaitForUITickFromUIThread. Without this the flag is only
+  // seen at the next vblank signal, so a guest frame arriving mid-wait sits there (up to ~20ms
+  // measured) and gets replaced by the next one: with an ImGui dialog open, a 120 FPS guest was
+  // presented at only ~85-90 FPS with 20-35ms gaps.
+  dxgi_ui_tick_signal_condition_.notify_all();
 #endif  // XE_PLATFORM
 }
 
