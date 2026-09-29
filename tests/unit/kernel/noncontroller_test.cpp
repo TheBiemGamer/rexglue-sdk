@@ -34,7 +34,7 @@ struct FakeHandler : NonControllerHandler {
   }
 };
 
-// Guest memory: buffer at 0x100, length (u32 BE) at 0x200, state (u16 BE) at 0x210.
+// Guest memory: buffer at 0x100, length (u32 BE) at 0x200, state (u32 BE) at 0x210.
 struct Guest {
   std::vector<uint8_t> mem = std::vector<uint8_t>(0x1000, 0);
   void SetLength(uint32_t v) {
@@ -47,7 +47,10 @@ struct Guest {
     return uint32_t(mem[0x200]) << 24 | uint32_t(mem[0x201]) << 16 | uint32_t(mem[0x202]) << 8 |
            mem[0x203];
   }
-  uint16_t State() const { return uint16_t(mem[0x210] << 8 | mem[0x211]); }
+  uint32_t State() const {
+    return uint32_t(mem[0x210]) << 24 | uint32_t(mem[0x211]) << 16 | uint32_t(mem[0x212]) << 8 |
+           mem[0x213];
+  }
 };
 
 }  // namespace
@@ -65,6 +68,10 @@ TEST_CASE("NonController: read fills buffer, length and state", "[kernel][xam]")
   RegisterNonControllerHandler(&h);
   Guest g;
   g.SetLength(0x20);
+  // Games read the state as a 32-bit value (Trap Team: lwz), so all 4 bytes must be written;
+  // leftover stack bytes there must not leak into it.
+  g.mem[0x212] = 0xAA;
+  g.mem[0x213] = 0xBB;
   auto r = DispatchNonControllerGetRaw(g.mem.data(), 6, 0x100, 0x200, 0x210);
   REQUIRE(r.has_value());
   CHECK(*r == 0);

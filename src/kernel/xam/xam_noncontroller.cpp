@@ -48,7 +48,9 @@ std::optional<uint32_t> DispatchNonControllerGetRaw(uint8_t* base, uint32_t devi
       handler->Read(device_id, std::span<uint8_t>(base + buffer_addr, length), bytes_read, state);
   if (XSUCCEEDED(status)) {
     rex::memory::store_and_swap<uint32_t>(base + length_addr, bytes_read);
-    rex::memory::store_and_swap<uint16_t>(base + state_addr, state);
+    // Stored as a full 32-bit value: games read it with a 32-bit load (Trap Team: lwz), and
+    // writing only 16 bits would leave stale stack bytes in the rest.
+    rex::memory::store_and_swap<uint32_t>(base + state_addr, state);
   }
   return status;
 }

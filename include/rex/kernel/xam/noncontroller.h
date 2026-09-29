@@ -29,7 +29,8 @@ class NonControllerHandler {
 void RegisterNonControllerHandler(NonControllerHandler* handler);
 
 // Export bodies, split out for testing. `base` is the guest memory base; addresses are guest
-// addresses. The length (u32) and state (u16) are big-endian in guest memory. Return nullopt when
+// addresses. The length and state are big-endian 32-bit values in guest memory (the handler's
+// state is 16 bits, but games read the whole word). Return nullopt when
 // no handler is registered, so the export can keep the stub's behaviour.
 std::optional<uint32_t> DispatchNonControllerGetRaw(uint8_t* base, uint32_t device_id,
                                                     uint32_t buffer_addr, uint32_t length_addr,
