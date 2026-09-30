@@ -4208,9 +4208,10 @@ bool D3D12CommandProcessor::UpdateBindings(const D3D12Shader* vertex_shader,
             ++n;
           }
         }
-        auto& previous = last_logged[pixel_hash];
-        if (previous != line) {
-          previous = line;
+        // Once per shader: constants that animate would otherwise flood the log (megabytes per
+        // second) and log rotation would drop the first sightings.
+        auto [previous, first_time] = last_logged.try_emplace(pixel_hash, line);
+        if (first_time) {
           REXGPU_INFO("PixelShaderConstants {:016X} pitch={}{}", pixel_hash,
                       regs.Get<reg::RB_SURFACE_INFO>().surface_pitch, line);
         }

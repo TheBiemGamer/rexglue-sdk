@@ -17,8 +17,8 @@ REXCVAR_DEFINE_BOOL(gpu_allow_invalid_fetch_constants, false, "Graphics",
                     "Allow invalid fetch constants");
 REXCVAR_DEFINE_BOOL(native_2x_msaa, true, "GPU", "Enable native 2x MSAA");
 REXCVAR_DEFINE_BOOL(log_pixel_shader_constants, false, "GPU",
-                    "Debug: log each pixel shader's hash and the float constants it reads, once "
-                    "per distinct set of values. For finding shaders to override.");
+                    "Debug: log each pixel shader's hash and the float constants it reads, the first "
+                    "time it is drawn. For finding shaders to override.");
 REXCVAR_DEFINE_BOOL(depth_float24_round, false, "GPU", "Round float24 depth values");
 REXCVAR_DEFINE_BOOL(depth_float24_convert_in_pixel_shader, false, "GPU",
                     "Convert float24 depth in pixel shader");
