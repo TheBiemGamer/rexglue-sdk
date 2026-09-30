@@ -223,10 +223,9 @@ bool D3D12RenderTargetCache::Initialize() {
   const ui::d3d12::D3D12Provider& provider = command_processor_.GetD3D12Provider();
   ID3D12Device* device = provider.GetDevice();
 
-  edram_layout_ = RequestedEdramLayout();
-  SetActiveEdramLayout(edram_layout_);
-  if (edram_layout_.is_extended()) {
-    REXGPU_INFO("D3D12 render target cache: emulating {} EDRAM tiles", edram_layout_.tile_count);
+  SetActiveEdramLayout(edram_layout());
+  if (edram_layout().is_extended()) {
+    REXGPU_INFO("D3D12 render target cache: emulating {} EDRAM tiles", edram_layout().tile_count);
   }
 
   if (REXCVAR_GET(render_target_path_d3d12) == "rtv") {
@@ -401,7 +400,7 @@ bool D3D12RenderTargetCache::Initialize() {
     const draw_util::ResolveCopyShaderInfo& resolve_copy_shader_info =
         draw_util::resolve_copy_shader_info[i];
     const ResolveCopyShaderCode& resolve_copy_shader_code =
-        edram_layout_.is_extended() ? kResolveCopyShaders4096[i] : kResolveCopyShaders[i];
+        edram_layout().is_extended() ? kResolveCopyShaders4096[i] : kResolveCopyShaders[i];
     // Somewhat verification whether resolve_copy_shaders_ is up to date.
     assert_true(resolve_copy_shader_code.unscaled && resolve_copy_shader_code.unscaled_size &&
                 resolve_copy_shader_code.scaled && resolve_copy_shader_code.scaled_size);
@@ -977,12 +976,12 @@ bool D3D12RenderTargetCache::Initialize() {
     // Create the resolve EDRAM buffer clearing pipelines.
     resolve_rov_clear_32bpp_pipeline_ = ui::d3d12::util::CreateComputePipeline(
         device,
-        edram_layout_.is_extended()
+        edram_layout().is_extended()
             ? (draw_resolution_scaled ? shaders::resolve_clear_32bpp_scaled_4096_cs
                                       : shaders::resolve_clear_32bpp_4096_cs)
             : (draw_resolution_scaled ? shaders::resolve_clear_32bpp_scaled_cs
                                       : shaders::resolve_clear_32bpp_cs),
-        edram_layout_.is_extended()
+        edram_layout().is_extended()
             ? (draw_resolution_scaled ? sizeof(shaders::resolve_clear_32bpp_scaled_4096_cs)
                                       : sizeof(shaders::resolve_clear_32bpp_4096_cs))
             : (draw_resolution_scaled ? sizeof(shaders::resolve_clear_32bpp_scaled_cs)
@@ -998,12 +997,12 @@ bool D3D12RenderTargetCache::Initialize() {
     resolve_rov_clear_32bpp_pipeline_->SetName(L"Resolve Clear 32bpp");
     resolve_rov_clear_64bpp_pipeline_ = ui::d3d12::util::CreateComputePipeline(
         device,
-        edram_layout_.is_extended()
+        edram_layout().is_extended()
             ? (draw_resolution_scaled ? shaders::resolve_clear_64bpp_scaled_4096_cs
                                       : shaders::resolve_clear_64bpp_4096_cs)
             : (draw_resolution_scaled ? shaders::resolve_clear_64bpp_scaled_cs
                                       : shaders::resolve_clear_64bpp_cs),
-        edram_layout_.is_extended()
+        edram_layout().is_extended()
             ? (draw_resolution_scaled ? sizeof(shaders::resolve_clear_64bpp_scaled_4096_cs)
                                       : sizeof(shaders::resolve_clear_64bpp_4096_cs))
             : (draw_resolution_scaled ? sizeof(shaders::resolve_clear_64bpp_scaled_cs)
@@ -1240,7 +1239,8 @@ bool D3D12RenderTargetCache::Resolve(const memory::Memory& memory, D3D12SharedMe
   bool fixed_16_truncated_to_minus_1_to_1 = IsFixed16TruncatedToMinus1To1();
   if (!draw_util::GetResolveInfo(register_file(), memory, draw_resolution_scale_x(),
                                  draw_resolution_scale_y(), fixed_16_truncated_to_minus_1_to_1,
-                                 fixed_16_truncated_to_minus_1_to_1, resolve_info)) {
+                                 fixed_16_truncated_to_minus_1_to_1, edram_layout(),
+                                 resolve_info)) {
     return false;
   }
 
@@ -2841,7 +2841,7 @@ ID3D12PipelineState* const* D3D12RenderTargetCache::GetOrCreateTransferPipelines
            dxbc::Src::R(1, dxbc::Src::kWWWW));
   // r1.w = 32bpp tile index within the source
   a.OpAnd(dxbc::Dest::R(1, 0b1000), dxbc::Src::R(1, dxbc::Src::kWWWW),
-          dxbc::Src::LU(edram_layout_.tile_mask()));
+          dxbc::Src::LU(edram_layout().tile_mask()));
   // r2.x = source pitch in 32bpp tiles
   a.OpUBFE(dxbc::Dest::R(2, 0b0001), dxbc::Src::LU(xenos::kEdramPitchTilesBits),
            dxbc::Src::LU(xenos::kEdramPitchTilesBits),
@@ -3429,7 +3429,7 @@ ID3D12PipelineState* const* D3D12RenderTargetCache::GetOrCreateTransferPipelines
                        dxbc::Src::R(0, dxbc::Src::kWWWW));
               // r0.z = tile index relative to the host depth source base
               a.OpAnd(dxbc::Dest::R(0, 0b0100), dxbc::Src::R(0, dxbc::Src::kZZZZ),
-                      dxbc::Src::LU(edram_layout_.tile_mask()));
+                      dxbc::Src::LU(edram_layout().tile_mask()));
               // Convert position and sample index from within the destination
               // tile to within the host depth source tile, like for the guest
               // render target, but for 32bpp -> 32bpp only.
@@ -5204,7 +5204,7 @@ ID3D12PipelineState* D3D12RenderTargetCache::GetOrCreateDumpPipeline(DumpPipelin
   // r0.z = wrapped tile index in the EDRAM
   // r0.w = non-wrapped tile index in the EDRAM
   a.OpAnd(dxbc::Dest::R(0, 0b0100), dxbc::Src::R(0, dxbc::Src::kWWWW),
-          dxbc::Src::LU(edram_layout_.tile_mask()));
+          dxbc::Src::LU(edram_layout().tile_mask()));
   // Convert the tile index to samples and add the X sample index to it to r0.z.
   // r0.x = X sample position within the tile
   // r0.y = Y sample position within the tile

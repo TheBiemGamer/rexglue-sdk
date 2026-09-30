@@ -185,7 +185,8 @@ VulkanRenderTargetCache::VulkanRenderTargetCache(const RegisterFile& register_fi
                                                  uint32_t draw_resolution_scale_x,
                                                  uint32_t draw_resolution_scale_y,
                                                  VulkanCommandProcessor& command_processor)
-    : RenderTargetCache(register_file, memory, draw_resolution_scale_x, draw_resolution_scale_y),
+    : RenderTargetCache(register_file, memory, draw_resolution_scale_x, draw_resolution_scale_y,
+                        EdramLayout{}),
       command_processor_(command_processor) {}
 
 VulkanRenderTargetCache::~VulkanRenderTargetCache() {
@@ -193,6 +194,10 @@ VulkanRenderTargetCache::~VulkanRenderTargetCache() {
 }
 
 bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+  if (RequestedEdramLayout().is_extended()) {
+    REXGPU_WARN("edram_tile_count 4096 is only supported by the D3D12 backend; using 2048");
+  }
+  SetActiveEdramLayout(edram_layout());
   const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
   const ui::vulkan::VulkanInstance::Functions& ifn = vulkan_device->vulkan_instance()->functions();
   const VkPhysicalDevice physical_device = vulkan_device->physical_device();
@@ -1136,7 +1141,8 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
   draw_util::ResolveInfo resolve_info;
   if (!draw_util::GetResolveInfo(register_file(), memory, draw_resolution_scale_x(),
                                  draw_resolution_scale_y(), IsFixedRG16TruncatedToMinus1To1(),
-                                 IsFixedRGBA16TruncatedToMinus1To1(), resolve_info)) {
+                                 IsFixedRGBA16TruncatedToMinus1To1(), edram_layout(),
+                                 resolve_info)) {
     return false;
   }
 

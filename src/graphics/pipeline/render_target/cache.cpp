@@ -172,13 +172,14 @@ void RenderTargetCache::GetPSIColorFormatInfo(xenos::ColorRenderTargetFormat for
 uint32_t RenderTargetCache::Transfer::GetRangeRectangles(uint32_t start_tiles, uint32_t end_tiles,
                                                          uint32_t base_tiles, uint32_t pitch_tiles,
                                                          xenos::MsaaSamples msaa_samples,
-                                                         bool is_64bpp, Rectangle* rectangles_out,
+                                                         bool is_64bpp, uint32_t edram_tile_count,
+                                                         Rectangle* rectangles_out,
                                                          const Rectangle* cutout) {
   // EDRAM addressing wrapping must be handled by doing GetRangeRectangles for
   // two clamped ranges, in this case start_tiles == end_tiles will also
   // unambiguously mean an empty range rather than the entire EDRAM.
-  assert_true(start_tiles < xenos::kEdramTileCount);
-  assert_true(end_tiles <= xenos::kEdramTileCount);
+  assert_true(start_tiles < edram_tile_count);
+  assert_true(end_tiles <= edram_tile_count);
   assert_true(start_tiles <= end_tiles);
   // If start_tiles < base_tiles, this is the tail after EDRAM addressing
   // wrapping.
@@ -196,7 +197,7 @@ uint32_t RenderTargetCache::Transfer::GetRangeRectangles(uint32_t start_tiles, u
   uint32_t rectangle_count = 0;
   // If start_tiles < base_tiles, this is the tail after EDRAM addressing
   // wrapping.
-  uint32_t local_offset = start_tiles < base_tiles ? xenos::kEdramTileCount : 0;
+  uint32_t local_offset = start_tiles < base_tiles ? edram_tile_count : 0;
   uint32_t local_start = local_offset + start_tiles - base_tiles;
   uint32_t local_end = local_offset + end_tiles - base_tiles;
   // Inclusive.
@@ -336,7 +337,7 @@ RenderTargetCache::~RenderTargetCache() {
 void RenderTargetCache::InitializeCommon() {
   assert_true(ownership_ranges_.empty());
   ownership_ranges_.emplace(std::piecewise_construct, std::forward_as_tuple(uint32_t(0)),
-                            std::forward_as_tuple(xenos::kEdramTileCount, RenderTargetKey(),
+                            std::forward_as_tuple(edram_layout_.tile_count, RenderTargetKey(),
                                                   RenderTargetKey(), RenderTargetKey()));
 }
 
@@ -344,7 +345,7 @@ void RenderTargetCache::DestroyAllRenderTargets(bool shutting_down) {
   ownership_ranges_.clear();
   if (!shutting_down) {
     ownership_ranges_.emplace(std::piecewise_construct, std::forward_as_tuple(uint32_t(0)),
-                              std::forward_as_tuple(xenos::kEdramTileCount, RenderTargetKey(),
+                              std::forward_as_tuple(edram_layout_.tile_count, RenderTargetKey(),
                                                     RenderTargetKey(), RenderTargetKey()));
   }
 
@@ -462,7 +463,7 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
     if (normalized_depth_control.z_enable || normalized_depth_control.stencil_enable) {
       depth_and_color_rts_used_bits |= 1;
       auto rb_depth_info = regs.Get<reg::RB_DEPTH_INFO>();
-      edram_bases[0] = rb_depth_info.depth_base;
+      edram_bases[0] = edram_layout_.DecodeBase(rb_depth_info.value);
       // With pixel shader interlock, always the same addressing disregarding
       // the format.
       resource_formats[0] = interlock_barrier_only ? 0 : uint32_t(rb_depth_info.depth_format);
@@ -474,7 +475,7 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
       auto color_info = regs.Get<reg::RB_COLOR_INFO>(reg::RB_COLOR_INFO::rt_register_indices[i]);
       uint32_t rt_bit_index = 1 + i;
       depth_and_color_rts_used_bits |= uint32_t(1) << rt_bit_index;
-      edram_bases[rt_bit_index] = color_info.color_base;
+      edram_bases[rt_bit_index] = edram_layout_.DecodeBase(color_info.value);
       xenos::ColorRenderTargetFormat color_format =
           regs.Get<reg::RB_COLOR_INFO>(reg::RB_COLOR_INFO::rt_register_indices[i]).color_format;
       bool is_64bpp = xenos::IsColorRenderTargetFormat64bpp(color_format);
@@ -601,7 +602,7 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
   // after rounding to tiles, with a 32bpp depth buffer at 0 requiring 675
   // tiles, and a 64bpp color buffer at 675 requiring 1350 tiles, but the
   // smallest distance between two render target bases is 675 tiles).
-  uint32_t rt_max_distance_tiles_at_64bpp = xenos::kEdramTileCount * 2;
+  uint32_t rt_max_distance_tiles_at_64bpp = edram_layout_.tile_count * 2;
   if (REXCVAR_GET(mrt_edram_used_range_clamp_to_min) && edram_bases_sorted_count >= 2) {
     for (uint32_t i = 1; i < edram_bases_sorted_count; ++i) {
       const std::pair<uint32_t, uint32_t>& rt_base_prev = edram_bases_sorted[i - 1];
@@ -616,7 +617,7 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
         edram_bases_sorted[edram_bases_sorted_count - 1];
     rt_max_distance_tiles_at_64bpp =
         std::min(rt_max_distance_tiles_at_64bpp,
-                 (xenos::kEdramTileCount + edram_bases_sorted[0].first - rt_base_last.first)
+                 (edram_layout_.tile_count + edram_bases_sorted[0].first - rt_base_last.first)
                      << (((rts_are_64bpp >> rt_base_last.second) & 1) ^ 1));
   }
 
@@ -654,7 +655,7 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
                                             rt_max_distance_tiles_at_64bpp >> (rt_is_64bpp ^ 1)),
                                    ((i + 1 < edram_bases_sorted_count)
                                         ? edram_bases_sorted[i + 1].first
-                                        : (xenos::kEdramTileCount + edram_bases_sorted[0].first)) -
+                                        : (edram_layout_.tile_count + edram_bases_sorted[0].first)) -
                                        rt_base);
   }
 
@@ -792,9 +793,9 @@ uint32_t RenderTargetCache::GetRenderTargetHeight(uint32_t pitch_tiles_at_32bpp,
   if (!pitch_tiles_at_32bpp) {
     return 0;
   }
-  // Down to the beginning of the render target in the next 11-bit EDRAM
-  // addressing period.
-  uint32_t tile_rows = (xenos::kEdramTileCount + (pitch_tiles_at_32bpp - 1)) / pitch_tiles_at_32bpp;
+  // Down to the beginning of the render target in the next EDRAM addressing
+  // period.
+  uint32_t tile_rows = (edram_layout_.tile_count + (pitch_tiles_at_32bpp - 1)) / pitch_tiles_at_32bpp;
   // Clamp to the guest limit (tile padding should exceed it) and to the host
   // limit (tile padding mustn't exceed it).
   static_assert(!(xenos::kTexture2DCubeMaxWidthHeight % xenos::kEdramTileHeightSamples),
@@ -908,11 +909,11 @@ void RenderTargetCache::GetResolveCopyRectanglesToDump(
     }
   };
   uint32_t resolve_area_end = base + (rows - 1) * pitch + row_length;
-  get_rectangles_in_extent(base, std::min(resolve_area_end, xenos::kEdramTileCount), 0);
-  if (resolve_area_end > xenos::kEdramTileCount) {
+  get_rectangles_in_extent(base, std::min(resolve_area_end, edram_layout_.tile_count), 0);
+  if (resolve_area_end > edram_layout_.tile_count) {
     // The resolve area goes to the next EDRAM addressing period.
-    get_rectangles_in_extent(0, std::min(resolve_area_end & (xenos::kEdramTileCount - 1), base),
-                             xenos::kEdramTileCount);
+    get_rectangles_in_extent(0, std::min(resolve_area_end & edram_layout_.tile_mask(), base),
+                             edram_layout_.tile_count);
   }
 }
 
@@ -1033,9 +1034,9 @@ bool RenderTargetCache::PrepareHostRenderTargetsResolveClear(
   uint32_t depth_clear_length_tiles = 0;
   if (resolve_info.IsClearingDepth()) {
     depth_clear_start_tiles_base_relative =
-        std::min(clear_start_tiles_at_32bpp, xenos::kEdramTileCount);
+        std::min(clear_start_tiles_at_32bpp, edram_layout_.tile_count);
     depth_clear_length_tiles =
-        std::min(clear_start_tiles_at_32bpp + clear_length_tiles_at_32bpp, xenos::kEdramTileCount) -
+        std::min(clear_start_tiles_at_32bpp + clear_length_tiles_at_32bpp, edram_layout_.tile_count) -
         depth_clear_start_tiles_base_relative;
   }
   uint32_t color_clear_start_tiles_base_relative = 0;
@@ -1043,10 +1044,10 @@ bool RenderTargetCache::PrepareHostRenderTargetsResolveClear(
   if (resolve_info.IsClearingColor()) {
     color_clear_start_tiles_base_relative =
         std::min(clear_start_tiles_at_32bpp << resolve_info.color_edram_info.format_is_64bpp,
-                 xenos::kEdramTileCount);
+                 edram_layout_.tile_count);
     color_clear_length_tiles = std::min((clear_start_tiles_at_32bpp + clear_length_tiles_at_32bpp)
                                             << resolve_info.color_edram_info.format_is_64bpp,
-                                        xenos::kEdramTileCount) -
+                                        edram_layout_.tile_count) -
                                color_clear_start_tiles_base_relative;
   }
   if (depth_clear_length_tiles && color_clear_length_tiles) {
@@ -1054,20 +1055,20 @@ bool RenderTargetCache::PrepareHostRenderTargetsResolveClear(
     // until the depth, in the current or the next 11 bits of the tile index.
     uint32_t depth_clear_start_tiles_wrapped =
         (resolve_info.depth_original_base + depth_clear_start_tiles_base_relative) &
-        (xenos::kEdramTileCount - 1);
+        (edram_layout_.tile_count - 1);
     uint32_t color_clear_start_tiles_wrapped =
         (resolve_info.color_original_base + color_clear_start_tiles_base_relative) &
-        (xenos::kEdramTileCount - 1);
+        (edram_layout_.tile_count - 1);
     depth_clear_length_tiles =
         std::min(depth_clear_length_tiles,
                  ((color_clear_start_tiles_wrapped < depth_clear_start_tiles_wrapped)
-                      ? xenos::kEdramTileCount
+                      ? edram_layout_.tile_count
                       : 0) +
                      color_clear_start_tiles_wrapped - depth_clear_start_tiles_wrapped);
     color_clear_length_tiles =
         std::min(color_clear_length_tiles,
                  ((depth_clear_start_tiles_wrapped < color_clear_start_tiles_wrapped)
-                      ? xenos::kEdramTileCount
+                      ? edram_layout_.tile_count
                       : 0) +
                      depth_clear_start_tiles_wrapped - color_clear_start_tiles_wrapped);
   }
@@ -1127,7 +1128,7 @@ bool RenderTargetCache::PrepareHostRenderTargetsResolveClear(
 void RenderTargetCache::PixelShaderInterlockFullEdramBarrierPlaced() {
   assert_true(GetPath() == Path::kPixelShaderInterlock);
   // Clear ownership - any overlap of data written before the barrier is safe.
-  OwnershipRange empty_range(xenos::kEdramTileCount, RenderTargetKey(), RenderTargetKey(),
+  OwnershipRange empty_range(edram_layout_.tile_count, RenderTargetKey(), RenderTargetKey(),
                              RenderTargetKey());
   if (ownership_ranges_.size() == 1) {
     // Do not reallocate map elements if not needed (either nothing drawn since
@@ -1136,7 +1137,7 @@ void RenderTargetCache::PixelShaderInterlockFullEdramBarrierPlaced() {
     // at 0.
     assert_true(!ownership_ranges_.begin()->first);
     OwnershipRange& all_edram_range = ownership_ranges_.begin()->second;
-    assert_true(all_edram_range.end_tiles == xenos::kEdramTileCount);
+    assert_true(all_edram_range.end_tiles == edram_layout_.tile_count);
     all_edram_range = empty_range;
     return;
   }
@@ -1178,10 +1179,10 @@ RenderTargetCache::RenderTarget* RenderTargetCache::GetOrCreateRenderTarget(Rend
 bool RenderTargetCache::WouldOwnershipChangeRequireTransfers(RenderTargetKey dest,
                                                              uint32_t start_tiles_base_relative,
                                                              uint32_t length_tiles) const {
-  // xenos::kEdramTileCount with length 0 is fine if both the start and the end
-  // are clamped to xenos::kEdramTileCount.
-  assert_true(start_tiles_base_relative <= (xenos::kEdramTileCount - uint32_t(length_tiles != 0)));
-  assert_true(length_tiles <= xenos::kEdramTileCount);
+  // the EDRAM tile count with length 0 is fine if both the start and the end
+  // are clamped to the EDRAM tile count.
+  assert_true(start_tiles_base_relative <= (edram_layout_.tile_count - uint32_t(length_tiles != 0)));
+  assert_true(length_tiles <= edram_layout_.tile_count);
   if (length_tiles == 0) {
     return false;
   }
@@ -1222,15 +1223,15 @@ bool RenderTargetCache::WouldOwnershipChangeRequireTransfers(RenderTargetKey des
   // start_tiles_base_relative may already be in the next 11 bits - wrap the
   // start tile index to use the same code as if that was not the case.
   uint32_t start_tiles =
-      (dest.base_tiles + start_tiles_base_relative) & (xenos::kEdramTileCount - 1);
+      (dest.base_tiles + start_tiles_base_relative) & edram_layout_.tile_mask();
   uint32_t end_tiles = start_tiles + length_tiles;
-  if (would_require_transfers_in_extent(start_tiles, std::min(end_tiles, xenos::kEdramTileCount))) {
+  if (would_require_transfers_in_extent(start_tiles, std::min(end_tiles, edram_layout_.tile_count))) {
     return true;
   }
-  if (end_tiles > xenos::kEdramTileCount) {
+  if (end_tiles > edram_layout_.tile_count) {
     // The check extent goes to the next EDRAM addressing period.
     if (would_require_transfers_in_extent(
-            0, std::min(end_tiles & (xenos::kEdramTileCount - 1), start_tiles))) {
+            0, std::min(end_tiles & edram_layout_.tile_mask(), start_tiles))) {
       return true;
     }
   }
@@ -1241,10 +1242,10 @@ void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_til
                                         uint32_t length_tiles,
                                         std::vector<Transfer>* transfers_append_out,
                                         const Transfer::Rectangle* resolve_clear_cutout) {
-  // xenos::kEdramTileCount with length 0 is fine if both the start and the end
-  // are clamped to xenos::kEdramTileCount.
-  assert_true(start_tiles_base_relative <= (xenos::kEdramTileCount - uint32_t(length_tiles != 0)));
-  assert_true(length_tiles <= xenos::kEdramTileCount);
+  // the EDRAM tile count with length 0 is fine if both the start and the end
+  // are clamped to the EDRAM tile count.
+  assert_true(start_tiles_base_relative <= (edram_layout_.tile_count - uint32_t(length_tiles != 0)));
+  assert_true(length_tiles <= edram_layout_.tile_count);
   if (length_tiles == 0) {
     return;
   }
@@ -1299,7 +1300,8 @@ void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_til
           if (!resolve_clear_cutout ||
               Transfer::GetRangeRectangles(it->first, transfer_end_tiles, dest.base_tiles,
                                            dest_pitch_tiles, dest.msaa_samples, dest_is_64bpp,
-                                           nullptr, resolve_clear_cutout)) {
+                                           edram_layout_.tile_count, nullptr,
+                                           resolve_clear_cutout)) {
             RenderTargetKey transfer_host_depth_source =
                 host_depth_encoding_different
                     ? it->second.GetHostDepthRenderTarget(dest.GetDepthFormat())
@@ -1335,7 +1337,8 @@ void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_til
                       it->first, transfer_end_tiles, transfer_source_rt_it->second,
                       transfer_host_depth_source_rt_it != render_targets_.end()
                           ? transfer_host_depth_source_rt_it->second
-                          : nullptr);
+                          : nullptr,
+                      edram_layout_.tile_count);
                 }
               }
             }
@@ -1376,12 +1379,12 @@ void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_til
   // start_tiles_base_relative may already be in the next 11 bits - wrap the
   // start tile index to use the same code as if that was not the case.
   uint32_t start_tiles =
-      (dest.base_tiles + start_tiles_base_relative) & (xenos::kEdramTileCount - 1);
+      (dest.base_tiles + start_tiles_base_relative) & edram_layout_.tile_mask();
   uint32_t end_tiles = start_tiles + length_tiles;
-  change_ownership_in_extent(start_tiles, std::min(end_tiles, xenos::kEdramTileCount));
-  if (end_tiles > xenos::kEdramTileCount) {
+  change_ownership_in_extent(start_tiles, std::min(end_tiles, edram_layout_.tile_count));
+  if (end_tiles > edram_layout_.tile_count) {
     // The ownership change extent goes to the next EDRAM addressing period.
-    change_ownership_in_extent(0, std::min(end_tiles & (xenos::kEdramTileCount - 1), start_tiles));
+    change_ownership_in_extent(0, std::min(end_tiles & edram_layout_.tile_mask(), start_tiles));
   }
 }
 

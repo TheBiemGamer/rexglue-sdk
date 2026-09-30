@@ -765,7 +765,8 @@ const ResolveCopyShaderInfo resolve_copy_shader_info[size_t(ResolveCopyShaderInd
 bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
                     uint32_t draw_resolution_scale_x, uint32_t draw_resolution_scale_y,
                     bool fixed_rg16_truncated_to_minus_1_to_1,
-                    bool fixed_rgba16_truncated_to_minus_1_to_1, ResolveInfo& info_out) {
+                    bool fixed_rgba16_truncated_to_minus_1_to_1, EdramLayout edram_layout,
+                    ResolveInfo& info_out) {
   // Don't pass uninitialized values to shaders, not to leak data to frame
   // captures. Also initialize an invalid resolve to empty.
   info_out.coordinate_info.packed = 0;
@@ -773,6 +774,7 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
 
   auto rb_copy_control = regs.Get<reg::RB_COPY_CONTROL>();
   info_out.rb_copy_control = rb_copy_control;
+  info_out.edram_extended = edram_layout.is_extended();
 
   if (rb_copy_control.copy_command != xenos::CopyCommand::kRaw &&
       rb_copy_control.copy_command != xenos::CopyCommand::kConvert) {
@@ -1039,12 +1041,13 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
     depth_edram_info.msaa_samples = rb_surface_info.msaa_samples;
     depth_edram_info.is_depth = 1;
     // If wrapping happens, it's fine, it doesn't matter how many times and
-    // where modulo xenos::kEdramTileCount is applied in this context.
-    depth_edram_info.base_tiles = rb_depth_info.depth_base + edram_base_offset_tiles;
+    // where modulo the EDRAM tile count is applied in this context.
+    depth_edram_info.base_tiles =
+        edram_layout.Wrap(edram_layout.DecodeBase(rb_depth_info.value) + edram_base_offset_tiles);
     depth_edram_info.format = uint32_t(rb_depth_info.depth_format);
     depth_edram_info.format_is_64bpp = 0;
     depth_edram_info.fill_half_pixel_offset = uint32_t(fill_half_pixel_offset);
-    info_out.depth_original_base = rb_depth_info.depth_base;
+    info_out.depth_original_base = edram_layout.DecodeBase(rb_depth_info.value);
   } else {
     info_out.depth_original_base = 0;
   }
@@ -1060,8 +1063,9 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
     color_edram_info.msaa_samples = rb_surface_info.msaa_samples;
     color_edram_info.is_depth = 0;
     // If wrapping happens, it's fine, it doesn't matter how many times and
-    // where modulo xenos::kEdramTileCount is applied in this context.
-    color_edram_info.base_tiles = color_info.color_base + (edram_base_offset_tiles << is_64bpp);
+    // where modulo the EDRAM tile count is applied in this context.
+    color_edram_info.base_tiles = edram_layout.Wrap(edram_layout.DecodeBase(color_info.value) +
+                                                    (edram_base_offset_tiles << is_64bpp));
     color_edram_info.format = uint32_t(color_info.color_format);
     color_edram_info.format_is_64bpp = is_64bpp;
     color_edram_info.fill_half_pixel_offset = uint32_t(fill_half_pixel_offset);
@@ -1075,7 +1079,7 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
       // to create a new copy info structure with one more bit just for this).
       exp_bias = std::min(exp_bias + int32_t(5), int32_t(31));
     }
-    info_out.color_original_base = color_info.color_base;
+    info_out.color_original_base = edram_layout.DecodeBase(color_info.value);
   } else {
     info_out.color_original_base = 0;
   }

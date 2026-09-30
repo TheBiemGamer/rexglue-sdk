@@ -44,7 +44,8 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
   D3D12RenderTargetCache(const RegisterFile& register_file, const memory::Memory& memory,
                          uint32_t draw_resolution_scale_x, uint32_t draw_resolution_scale_y,
                          D3D12CommandProcessor& command_processor, bool bindless_resources_used)
-      : RenderTargetCache(register_file, memory, draw_resolution_scale_x, draw_resolution_scale_y),
+      : RenderTargetCache(register_file, memory, draw_resolution_scale_x, draw_resolution_scale_y,
+                          RequestedEdramLayout()),
         command_processor_(command_processor),
         bindless_resources_used_(bindless_resources_used) {}
   ~D3D12RenderTargetCache() override;
@@ -139,8 +140,6 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
   bool bindless_resources_used_;
 
   Path path_ = Path::kHostRenderTargets;
-  // EDRAM size this cache emulates; fixed for the cache's lifetime.
-  EdramLayout edram_layout_;
 
   // For host render targets, an EDRAM-sized scratch buffer for:
   // - Guest render target data copied from host render targets during copying

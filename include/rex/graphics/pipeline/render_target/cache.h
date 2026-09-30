@@ -21,6 +21,7 @@
 #include <fmt/format.h>
 
 #include <rex/assert.h>
+#include <rex/graphics/edram_layout.h>
 #include <rex/graphics/pipeline/shader/shader.h>
 #include <rex/graphics/register_file.h>
 #include <rex/graphics/registers.h>
@@ -160,6 +161,8 @@ class RenderTargetCache {
   // to be discarded.
   uint32_t draw_resolution_scale_x() const { return draw_resolution_scale_x_; }
   uint32_t draw_resolution_scale_y() const { return draw_resolution_scale_y_; }
+  // EDRAM size this cache emulates; fixed for the cache's lifetime.
+  EdramLayout edram_layout() const { return edram_layout_; }
   bool IsDrawResolutionScaled() const {
     return draw_resolution_scale_x() > 1 || draw_resolution_scale_y() > 1;
   }
@@ -182,11 +185,13 @@ class RenderTargetCache {
 
  protected:
   RenderTargetCache(const RegisterFile& register_file, const memory::Memory& memory,
-                    uint32_t draw_resolution_scale_x, uint32_t draw_resolution_scale_y)
+                    uint32_t draw_resolution_scale_x, uint32_t draw_resolution_scale_y,
+                    EdramLayout edram_layout)
       : register_file_(register_file),
         draw_extent_estimator_(register_file, memory),
         draw_resolution_scale_x_(draw_resolution_scale_x),
-        draw_resolution_scale_y_(draw_resolution_scale_y) {
+        draw_resolution_scale_y_(draw_resolution_scale_y),
+        edram_layout_(edram_layout) {
     assert_not_zero(draw_resolution_scale_x);
     assert_not_zero(draw_resolution_scale_y);
   }
@@ -307,12 +312,15 @@ class RenderTargetCache {
     uint32_t end_tiles;
     RenderTarget* source;
     RenderTarget* host_depth_source;
+    // EDRAM size of the cache that made this transfer, for addressing wrapping.
+    uint32_t edram_tile_count;
     Transfer(uint32_t start_tiles, uint32_t end_tiles, RenderTarget* source,
-             RenderTarget* host_depth_source)
+             RenderTarget* host_depth_source, uint32_t edram_tile_count)
         : start_tiles(start_tiles),
           end_tiles(end_tiles),
           source(source),
-          host_depth_source(host_depth_source) {
+          host_depth_source(host_depth_source),
+          edram_tile_count(edram_tile_count) {
       assert_true(start_tiles < end_tiles);
     }
     struct Rectangle {
@@ -330,13 +338,13 @@ class RenderTargetCache {
     static uint32_t GetRangeRectangles(uint32_t start_tiles, uint32_t end_tiles,
                                        uint32_t base_tiles, uint32_t pitch_tiles,
                                        xenos::MsaaSamples msaa_samples, bool is_64bpp,
-                                       Rectangle* rectangles_out,
+                                       uint32_t edram_tile_count, Rectangle* rectangles_out,
                                        const Rectangle* cutout = nullptr);
     uint32_t GetRectangles(uint32_t base_tiles, uint32_t pitch_tiles,
                            xenos::MsaaSamples msaa_samples, bool is_64bpp,
                            Rectangle* rectangles_out, const Rectangle* cutout = nullptr) const {
       return GetRangeRectangles(start_tiles, end_tiles, base_tiles, pitch_tiles, msaa_samples,
-                                is_64bpp, rectangles_out, cutout);
+                                is_64bpp, edram_tile_count, rectangles_out, cutout);
     }
     bool AreSourcesSame(const Transfer& other_transfer) const {
       return source == other_transfer.source &&
@@ -553,6 +561,7 @@ class RenderTargetCache {
   const RegisterFile& register_file_;
   uint32_t draw_resolution_scale_x_;
   uint32_t draw_resolution_scale_y_;
+  const EdramLayout edram_layout_;
 
   DrawExtentEstimator draw_extent_estimator_;
 
