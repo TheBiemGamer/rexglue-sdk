@@ -99,7 +99,8 @@ PipelineCache::PipelineCache(D3D12CommandProcessor& command_processor,
       provider.GetAdapterVendorID(), bindless_resources_used_, edram_rov_used,
       !render_target_cache_.gamma_render_target_as_unorm16(),
       render_target_cache_.msaa_2x_supported(), render_target_cache_.draw_resolution_scale_x(),
-      render_target_cache_.draw_resolution_scale_y(), provider.GetGraphicsAnalysis() != nullptr);
+      render_target_cache_.draw_resolution_scale_y(), provider.GetGraphicsAnalysis() != nullptr,
+      render_target_cache_.edram_layout().tile_count);
 
   if (edram_rov_used) {
     depth_only_pixel_shader_ = std::move(shader_translator_->CreateDepthOnlyPixelShader());
@@ -250,7 +251,7 @@ void PipelineCache::InitializeShaderStorage(const std::filesystem::path& cache_r
   std::set<std::pair<uint64_t, uint64_t>> shader_translations_needed;
   auto pipeline_storage_file_path =
       shader_storage_shareable_root /
-      fmt::format("{:08X}.{}.d3d12.xpso", title_id, edram_rov_used ? "rov" : "rtv");
+      PipelineStorageFileName(title_id, edram_rov_used, render_target_cache_.edram_layout());
   pipeline_storage_file_ = rex::filesystem::OpenFile(pipeline_storage_file_path, "a+b");
   if (!pipeline_storage_file_) {
     REXGPU_ERROR(
@@ -374,7 +375,8 @@ void PipelineCache::InitializeShaderStorage(const std::filesystem::path& cache_r
           !render_target_cache_.gamma_render_target_as_unorm16(),
           render_target_cache_.msaa_2x_supported(), render_target_cache_.draw_resolution_scale_x(),
           render_target_cache_.draw_resolution_scale_y(),
-          provider.GetGraphicsAnalysis() != nullptr);
+          provider.GetGraphicsAnalysis() != nullptr,
+          render_target_cache_.edram_layout().tile_count);
       // If needed and possible, create objects needed for DXIL conversion and
       // disassembly on this thread.
       IDxbcConverter* dxbc_converter = nullptr;

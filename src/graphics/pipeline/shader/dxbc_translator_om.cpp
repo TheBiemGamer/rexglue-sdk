@@ -322,7 +322,7 @@ void DxbcShaderTranslator::StartPixelShader_LoadROVParameters() {
   //                             needed
   a_.OpUDiv(dxbc::Dest::Null(), dxbc::Dest::R(system_temp_rov_params_, 0b0010),
             dxbc::Src::R(system_temp_rov_params_, dxbc::Src::kYYYY),
-            dxbc::Src::LU(tile_size * xenos::kEdramTileCount));
+            dxbc::Src::LU(tile_size * edram_tile_count_));
 
   // ***************************************************************************
   // Sample coverage to system_temp_rov_params_.x.
@@ -1882,7 +1882,7 @@ void DxbcShaderTranslator::CompletePixelShader_WriteToROV() {
   // Write color values.
   uint32_t shader_writes_color_targets = current_shader().writes_color_targets();
   uint32_t edram_size_32bpp_samples = (xenos::kEdramTileHeightSamples * draw_resolution_scale_y_) *
-                                      tile_width * xenos::kEdramTileCount;
+                                      tile_width * edram_tile_count_;
   for (uint32_t i = 0; i < 4; ++i) {
     if (!(shader_writes_color_targets & (1 << i))) {
       continue;

@@ -126,3 +126,13 @@ TEST_CASE("resolve EDRAM info repacks to the stock 11-bit shader layout", "[edra
                     (1u << 29)));
   REQUIRE(ResolveEdramInfoForShaders(info, true).packed == info.packed);
 }
+
+TEST_CASE("pipeline storage file names keep stock caches separate", "[edram_layout]") {
+  using rex::graphics::PipelineStorageFileName;
+  const auto stock = EdramLayout::FromRequested(2048);
+  const auto big = EdramLayout::FromRequested(4096);
+  REQUIRE(PipelineStorageFileName(0x4156089E, true, stock) == "4156089E.rov.d3d12.xpso");
+  REQUIRE(PipelineStorageFileName(0x4156089E, false, stock) == "4156089E.rtv.d3d12.xpso");
+  REQUIRE(PipelineStorageFileName(0x4156089E, true, big) == "4156089E.rov.4096.d3d12.xpso");
+  REQUIRE(PipelineStorageFileName(0x4156089E, false, big) == "4156089E.rtv.d3d12.xpso");
+}

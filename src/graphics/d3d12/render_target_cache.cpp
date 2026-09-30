@@ -259,7 +259,7 @@ bool D3D12RenderTargetCache::Initialize() {
 
   // Create the buffer for reinterpreting EDRAM contents.
   uint32_t edram_buffer_size =
-      xenos::kEdramSizeBytes * (draw_resolution_scale_x() * draw_resolution_scale_y());
+      edram_layout().size_bytes() * (draw_resolution_scale_x() * draw_resolution_scale_y());
   D3D12_RESOURCE_DESC edram_buffer_desc;
   ui::d3d12::util::FillBufferResourceDesc(edram_buffer_desc, edram_buffer_size,
                                           D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
@@ -630,7 +630,7 @@ bool D3D12RenderTargetCache::Initialize() {
     transfer_vertex_buffer_pool_ = std::make_unique<ui::d3d12::D3D12UploadBufferPool>(
         provider, std::max(ui::d3d12::D3D12UploadBufferPool::kDefaultPageSize,
                            sizeof(float) * 2 * 6 * Transfer::kMaxCutoutBorderRectangles *
-                               xenos::kEdramTileCount));
+                               edram_layout().tile_count));
 
     // Transfer root signatures.
     D3D12_DESCRIPTOR_RANGE transfer_root_color_srv_range;

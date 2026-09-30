@@ -7,6 +7,9 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
+
+#include <fmt/format.h>
 
 #include <rex/graphics/xenos.h>
 
@@ -53,6 +56,15 @@ struct EdramLayout {
     return 2;
   }
 };
+
+// D3D12 pipeline storage file name. ROV shaders embed the EDRAM size, so a 4096-tile ROV cache gets
+// its own file; the stock names are unchanged so existing caches keep working.
+inline std::string PipelineStorageFileName(uint32_t title_id, bool rov, EdramLayout layout) {
+  if (rov && layout.is_extended()) {
+    return fmt::format("{:08X}.rov.{}.d3d12.xpso", title_id, layout.tile_count);
+  }
+  return fmt::format("{:08X}.{}.d3d12.xpso", title_id, rov ? "rov" : "rtv");
+}
 
 // The layout the edram_tile_count setting asks for (invalid values give 2048 with a warning).
 EdramLayout RequestedEdramLayout();
