@@ -414,7 +414,9 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
       // + 1 bit because this is a signed difference between two EDRAM bases.
       // 0 for host_depth_source_is_copy (ignored in this case anyway as
       // destination == source anyway).
-      int32_t source_to_dest : xenos::kEdramBaseTilesBits + 1;
+      // With a 4096-tile EDRAM the difference is stored modulo 4096: the shader
+      // wraps the sum at the EDRAM tile count, so the result is the same.
+      int32_t source_to_dest : xenos::kEdramBaseTilesBitsMax;
     };
     TransferAddressConstant() : constant(0) { static_assert_size(*this, sizeof(constant)); }
     bool operator==(const TransferAddressConstant& other_constant) const {
@@ -501,8 +503,8 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
     struct {
       // May be beyond the EDRAM tile count in case of EDRAM addressing
       // wrapping, thus + 1 bit.
-      uint32_t dispatch_first_tile : xenos::kEdramBaseTilesBits + 1;
-      uint32_t source_base_tiles : xenos::kEdramBaseTilesBits;
+      uint32_t dispatch_first_tile : xenos::kEdramBaseTilesBitsMax + 1;
+      uint32_t source_base_tiles : xenos::kEdramBaseTilesBitsMax;
     };
     DumpOffsets() : offsets(0) { static_assert_size(*this, sizeof(offsets)); }
     bool operator==(const DumpOffsets& other_offsets) const {

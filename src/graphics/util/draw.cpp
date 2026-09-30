@@ -1156,7 +1156,7 @@ ResolveCopyShaderIndex ResolveInfo::GetCopyShader(uint32_t draw_resolution_scale
     }
   }
 
-  constants_out.dest_relative.edram_info = edram_info;
+  constants_out.dest_relative.edram_info = ResolveEdramInfoForShaders(edram_info, edram_extended);
   constants_out.dest_relative.coordinate_info = coordinate_info;
   constants_out.dest_relative.dest_info = copy_dest_info;
   constants_out.dest_relative.dest_coordinate_info = copy_dest_coordinate_info;

@@ -2,6 +2,7 @@
 
 #include <rex/cvar.h>
 #include <rex/graphics/edram_layout.h>
+#include <rex/graphics/util/draw.h>
 
 using rex::graphics::EdramLayout;
 
@@ -73,4 +74,55 @@ TEST_CASE("active layout defaults to stock and can be set", "[edram_layout]") {
   rex::graphics::SetActiveEdramLayout(EdramLayout::FromRequested(4096));
   REQUIRE(rex::graphics::ActiveEdramLayout().tile_count == 4096);
   rex::graphics::SetActiveEdramLayout(EdramLayout::FromRequested(2048));
+}
+
+TEST_CASE("resolve EDRAM info holds a 12-bit base", "[edram_layout]") {
+  rex::graphics::draw_util::ResolveEdramInfo info;
+  info.pitch_tiles = 1023;
+  info.base_tiles = 4095;
+  info.format = 15;
+  info.format_is_64bpp = 1;
+  info.fill_half_pixel_offset = 1;
+  REQUIRE(info.base_tiles == 4095);
+  REQUIRE(info.pitch_tiles == 1023);
+  REQUIRE(info.format == 15);
+  REQUIRE(info.format_is_64bpp == 1);
+  REQUIRE(info.fill_half_pixel_offset == 1);
+  STATIC_REQUIRE(sizeof(info) == sizeof(uint32_t));
+}
+
+TEST_CASE("resolve EDRAM info bit positions match the 4096-tile resolve shaders", "[edram_layout]") {
+  // src/graphics/shaders/xesl/resolve.xesli with XE_EDRAM_BASE_TILES_BITS 12: base at 13 (12 bits),
+  // format at 25, format_ints_log2 at 29, fill_half_pixel_offset at 30.
+  rex::graphics::draw_util::ResolveEdramInfo info;
+  info.base_tiles = 0xABC;
+  REQUIRE(((info.packed >> 13) & 0xFFF) == 0xABC);
+  info.packed = 0;
+  info.format = 0x9;
+  REQUIRE(info.packed == (0x9u << 25));
+  info.packed = 0;
+  info.format_is_64bpp = 1;
+  REQUIRE(info.packed == (1u << 29));
+  info.packed = 0;
+  info.fill_half_pixel_offset = 1;
+  REQUIRE(info.packed == (1u << 30));
+}
+
+TEST_CASE("resolve EDRAM info repacks to the stock 11-bit shader layout", "[edram_layout]") {
+  // Stock resolve shaders (XE_EDRAM_BASE_TILES_BITS 11): pitch 0..9, msaa 10..11, is_depth 12,
+  // base 13..23, format 24..27, format_ints_log2 28, fill_half_pixel_offset 29.
+  using rex::graphics::draw_util::ResolveEdramInfo;
+  using rex::graphics::draw_util::ResolveEdramInfoForShaders;
+  ResolveEdramInfo info;
+  info.pitch_tiles = 0x2A5;
+  info.msaa_samples = rex::graphics::xenos::MsaaSamples::k4X;
+  info.is_depth = 1;
+  info.base_tiles = 0x5A5;
+  info.format = 0xB;
+  info.format_is_64bpp = 1;
+  info.fill_half_pixel_offset = 1;
+  const uint32_t stock = ResolveEdramInfoForShaders(info, false).packed;
+  REQUIRE(stock == (0x2A5u | (2u << 10) | (1u << 12) | (0x5A5u << 13) | (0xBu << 24) | (1u << 28) |
+                    (1u << 29)));
+  REQUIRE(ResolveEdramInfoForShaders(info, true).packed == info.packed);
 }

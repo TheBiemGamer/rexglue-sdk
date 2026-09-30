@@ -346,7 +346,9 @@ union ResolveEdramInfo {
     xenos::MsaaSamples msaa_samples : xenos::kMsaaSamplesBits;
     uint32_t is_depth : 1;
     // With offset to the region that edram_offset_x/y_div_8 are relative to.
-    uint32_t base_tiles : xenos::kEdramBaseTilesBits;
+    // 12 bits to hold 4096-tile EDRAM bases; ResolveEdramInfoForShaders packs it for the stock
+    // (11-bit) resolve shaders.
+    uint32_t base_tiles : xenos::kEdramBaseTilesBitsMax;
     uint32_t format : xenos::kRenderTargetFormatBits;
     uint32_t format_is_64bpp : 1;
     // Whether to fill the half-pixel offset gap on the left and the top sides
@@ -356,6 +358,23 @@ union ResolveEdramInfo {
   };
   ResolveEdramInfo() : packed(0) { static_assert_size(*this, sizeof(packed)); }
 };
+
+// The value the resolve shaders receive. The 4096-tile shaders read this union's layout; the stock
+// ones read Xenia's layout with an 11-bit base, so every field above the base moves down a bit.
+inline ResolveEdramInfo ResolveEdramInfoForShaders(ResolveEdramInfo info, bool edram_extended) {
+  if (edram_extended) {
+    return info;
+  }
+  constexpr uint32_t kBaseShift = xenos::kEdramPitchTilesBits + xenos::kMsaaSamplesBits + 1;
+  constexpr uint32_t kLowMask = (uint32_t(1) << kBaseShift) - 1;
+  ResolveEdramInfo stock;
+  stock.packed = (info.packed & kLowMask) |
+                 ((info.base_tiles & ((uint32_t(1) << xenos::kEdramBaseTilesBits) - 1))
+                  << kBaseShift) |
+                 ((info.packed >> (kBaseShift + xenos::kEdramBaseTilesBitsMax))
+                  << (kBaseShift + xenos::kEdramBaseTilesBits));
+  return stock;
+}
 
 union ResolveCoordinateInfo {
   uint32_t packed;
@@ -485,6 +504,9 @@ struct ResolveInfo {
   // transfers between clears and first usage if clearing a subregion.
   uint32_t depth_original_base;
   uint32_t color_original_base;
+  // Whether the render target cache emulates a 4096-tile EDRAM, selecting the resolve shaders'
+  // ResolveEdramInfo layout (see ResolveEdramInfoForShaders).
+  bool edram_extended = false;
 
   ResolveCoordinateInfo coordinate_info;
   // Like coordinate_info.width_div_8, but not needed for shaders.
@@ -541,7 +563,8 @@ struct ResolveInfo {
     assert_true(IsClearingDepth());
     constants_out.rt_specific.clear_value[0] = rb_depth_clear;
     constants_out.rt_specific.clear_value[1] = rb_depth_clear;
-    constants_out.rt_specific.edram_info = depth_edram_info;
+    constants_out.rt_specific.edram_info =
+        ResolveEdramInfoForShaders(depth_edram_info, edram_extended);
     constants_out.coordinate_info = coordinate_info;
   }
 
@@ -553,7 +576,8 @@ struct ResolveInfo {
     // TODO(Triang3l): Check which 32-bit portion is in which register.
     constants_out.rt_specific.clear_value[0] = rb_color_clear;
     constants_out.rt_specific.clear_value[1] = rb_color_clear_lo;
-    constants_out.rt_specific.edram_info = color_edram_info;
+    constants_out.rt_specific.edram_info =
+        ResolveEdramInfoForShaders(color_edram_info, edram_extended);
     constants_out.coordinate_info = coordinate_info;
   }
 

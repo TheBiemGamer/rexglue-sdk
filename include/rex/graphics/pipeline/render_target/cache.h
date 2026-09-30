@@ -225,14 +225,15 @@ class RenderTargetCache {
   union RenderTargetKey {
     uint32_t key;
     struct {
-      uint32_t base_tiles : xenos::kEdramBaseTilesBits;  // 11
+      // 12 bits to hold 4096-tile EDRAM bases (rex/graphics/edram_layout.h).
+      uint32_t base_tiles : xenos::kEdramBaseTilesBitsMax;  // 12
       // At 4x MSAA (2 horizontal samples), max. align(8192 * 2, 80) / 80 = 205.
       // For pitch at 64bpp, multiply by 2 (or use GetPitchTiles).
-      uint32_t pitch_tiles_at_32bpp : 8;                          // 19
-      xenos::MsaaSamples msaa_samples : xenos::kMsaaSamplesBits;  // 21
-      uint32_t is_depth : 1;                                      // 22
+      uint32_t pitch_tiles_at_32bpp : 8;                          // 20
+      xenos::MsaaSamples msaa_samples : xenos::kMsaaSamplesBits;  // 22
+      uint32_t is_depth : 1;                                      // 23
       // Ignoring the blending precision and sRGB.
-      uint32_t resource_format : xenos::kRenderTargetFormatBits;  // 26
+      uint32_t resource_format : xenos::kRenderTargetFormatBits;  // 27
     };
 
     RenderTargetKey() : key(0) { static_assert_size(*this, sizeof(key)); }
