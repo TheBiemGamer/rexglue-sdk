@@ -20,6 +20,9 @@
 #include <rex/dbg.h>
 #include <rex/perf/counter.h>
 #include <rex/graphics/d3d12/command_processor.h>
+
+#include <string>
+#include <unordered_map>
 #include <rex/graphics/d3d12/graphics_system.h>
 #include <rex/graphics/d3d12/shader.h>
 #include <rex/graphics/flags.h>
@@ -4186,6 +4189,30 @@ bool D3D12CommandProcessor::UpdateBindings(const D3D12Shader* vertex_shader,
                 reinterpret_cast<float*>(float_constants));
           }
           float_constants += 4 * sizeof(float);
+        }
+      }
+      if (REXCVAR_GET(log_pixel_shader_constants)) {
+        static std::unordered_map<uint64_t, std::string> last_logged;
+        // float_constants now points past the last constant written by the loop above.
+        const float* values = reinterpret_cast<const float*>(float_constants) -
+                              4 * float_constant_map_pixel.float_count;
+        std::string line;
+        uint32_t n = 0;
+        for (uint32_t i = 0; i < 4; ++i) {
+          uint64_t bits = float_constant_map_pixel.float_bitmap[i];
+          uint32_t idx;
+          while (rex::bit_scan_forward(bits, &idx)) {
+            bits &= ~(1ull << idx);
+            line += fmt::format(" c{}=({},{},{},{})", (i << 6) + idx, values[n * 4],
+                                values[n * 4 + 1], values[n * 4 + 2], values[n * 4 + 3]);
+            ++n;
+          }
+        }
+        auto& previous = last_logged[pixel_hash];
+        if (previous != line) {
+          previous = line;
+          REXGPU_INFO("PixelShaderConstants {:016X} pitch={}{}", pixel_hash,
+                      regs.Get<reg::RB_SURFACE_INFO>().surface_pitch, line);
         }
       }
     }
