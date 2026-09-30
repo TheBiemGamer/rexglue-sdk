@@ -25,6 +25,7 @@
 #include <rex/assert.h>
 #include <rex/graphics/d3d12/shared_memory.h>
 #include <rex/graphics/d3d12/texture_cache.h>
+#include <rex/graphics/edram_layout.h>
 #include <rex/graphics/flags.h>
 #include <rex/graphics/pipeline/render_target/cache.h>
 #include <rex/graphics/util/draw.h>
@@ -138,6 +139,8 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
   bool bindless_resources_used_;
 
   Path path_ = Path::kHostRenderTargets;
+  // EDRAM size this cache emulates; fixed for the cache's lifetime.
+  EdramLayout edram_layout_;
 
   // For host render targets, an EDRAM-sized scratch buffer for:
   // - Guest render target data copied from host render targets during copying
@@ -186,6 +189,8 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
   };
   static const ResolveCopyShaderCode
       kResolveCopyShaders[size_t(draw_util::ResolveCopyShaderIndex::kCount)];
+  static const ResolveCopyShaderCode
+      kResolveCopyShaders4096[size_t(draw_util::ResolveCopyShaderIndex::kCount)];
   ID3D12PipelineState* resolve_copy_pipelines_[size_t(draw_util::ResolveCopyShaderIndex::kCount)] =
       {};
 

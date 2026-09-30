@@ -1,5 +1,6 @@
 # Builds the D3D12 shaders that address EDRAM (resolve, clear, host depth store) from the Xenia
-# sources in src/graphics/shaders/xesl, for a 2048-tile (stock) or 4096-tile EDRAM. Uses the same
+# sources in src/graphics/shaders/xesl, for a 2048-tile (stock) or 4096-tile EDRAM (resolves and
+# clears only, as *_4096_cs.h). Uses the same
 # fxc flags as Xenia's xenia-build buildshaders at the imported revision (see xesl/README.md), then
 # clang-format, so a 2048-tile build reproduces the committed headers exactly.
 param([ValidateSet(2048, 4096)][int]$TileCount = 2048, [string]$Only = "")
@@ -25,6 +26,9 @@ if (-not $clangFormat) { throw "clang-format not found; set CLANG_FORMAT_PATH" }
 $baseBits = if ($TileCount -eq 4096) { 12 } else { 11 }
 $suffix = if ($TileCount -eq 4096) { "_4096" } else { "" }
 $names = Get-ChildItem $src -Filter "*.cs.xesl" | ForEach-Object { $_.Name -replace '\.cs\.xesl$', '' }
+# Host depth stores address the destination relative to the render target, not EDRAM, so they
+# don't depend on the EDRAM size and have no 4096-tile variant.
+if ($TileCount -eq 4096) { $names = @($names | Where-Object { $_ -like "resolve_*" }) }
 if ($Only) { $names = @($names | Where-Object { $_ -eq $Only }) }
 Push-Location $src
 try {

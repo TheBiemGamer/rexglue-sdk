@@ -87,6 +87,12 @@ struct XeResolveInfo {
   #endif  // XE_RESOLVE_CLEAR
 };
 
+// Width of the EDRAM base in xe_resolve_edram_info: 11 for the real 2048-tile EDRAM, 12 for the
+// SDK's 4096-tile one. The fields above the base move up with it.
+#ifndef XE_EDRAM_BASE_TILES_BITS
+  #define XE_EDRAM_BASE_TILES_BITS 11
+#endif
+
 XeResolveInfo XeResolveGetInfo(param_push_consts_xe) {
   XeResolveInfo resolve_info;
   uint edram_info = push_const_xe(xe_resolve_edram_info);
@@ -94,13 +100,16 @@ XeResolveInfo XeResolveGetInfo(param_push_consts_xe) {
   resolve_info.edram_pitch_tiles = edram_info & ((1u << 10u) - 1u);
   resolve_info.edram_msaa_samples = (edram_info >> 10u) & ((1u << 2u) - 1u);
   resolve_info.edram_is_depth = (edram_info & (1u << 12u)) != 0u;
-  resolve_info.edram_base_tiles = (edram_info >> 13u) & ((1u << 11u) - 1u);
-  resolve_info.edram_format = (edram_info >> 24u) & ((1u << 4u) - 1u);
-  resolve_info.edram_format_ints_log2 = (edram_info >> 28u) & 1u;
+  resolve_info.edram_base_tiles =
+      (edram_info >> 13u) & ((1u << uint(XE_EDRAM_BASE_TILES_BITS)) - 1u);
+  resolve_info.edram_format =
+      (edram_info >> (13u + uint(XE_EDRAM_BASE_TILES_BITS))) & ((1u << 4u) - 1u);
+  resolve_info.edram_format_ints_log2 =
+      (edram_info >> (17u + uint(XE_EDRAM_BASE_TILES_BITS))) & 1u;
   #ifdef XE_RESOLVE_RESOLUTION_SCALED
     resolve_info.resolution_scale =
         (uint_x2_xe(coordinate_info) >> uint2_xe(16u, 19u)) & 7u;
-    if ((edram_info & (1u << 29u)) != 0u) {
+    if ((edram_info & (1u << (18u + uint(XE_EDRAM_BASE_TILES_BITS)))) != 0u) {
       resolve_info.half_pixel_offset_fill_source =
           resolve_info.resolution_scale >> 1u;
     } else {

@@ -58,27 +58,49 @@ namespace shaders {
 #include "../shaders/bytecode/d3d12_5_1/host_depth_store_4xmsaa_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/passthrough_position_xy_vs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_clear_32bpp_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_clear_32bpp_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_clear_32bpp_scaled_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_clear_32bpp_scaled_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_clear_64bpp_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_clear_64bpp_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_clear_64bpp_scaled_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_clear_64bpp_scaled_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_fast_32bpp_1x2xmsaa_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_fast_32bpp_1x2xmsaa_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_fast_32bpp_1x2xmsaa_scaled_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_fast_32bpp_1x2xmsaa_scaled_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_fast_32bpp_4xmsaa_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_fast_32bpp_4xmsaa_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_fast_32bpp_4xmsaa_scaled_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_fast_32bpp_4xmsaa_scaled_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_fast_64bpp_1x2xmsaa_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_fast_64bpp_1x2xmsaa_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_fast_64bpp_1x2xmsaa_scaled_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_fast_64bpp_1x2xmsaa_scaled_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_fast_64bpp_4xmsaa_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_fast_64bpp_4xmsaa_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_fast_64bpp_4xmsaa_scaled_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_fast_64bpp_4xmsaa_scaled_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_full_128bpp_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_full_128bpp_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_full_128bpp_scaled_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_full_128bpp_scaled_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_full_16bpp_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_full_16bpp_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_full_16bpp_scaled_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_full_16bpp_scaled_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_full_32bpp_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_full_32bpp_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_full_32bpp_scaled_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_full_32bpp_scaled_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_full_64bpp_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_full_64bpp_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_full_64bpp_scaled_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_full_64bpp_scaled_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_full_8bpp_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_full_8bpp_4096_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_full_8bpp_scaled_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/resolve_full_8bpp_scaled_4096_cs.h"
 }  // namespace shaders
 
 const D3D12RenderTargetCache::ResolveCopyShaderCode
@@ -106,6 +128,34 @@ const D3D12RenderTargetCache::ResolveCopyShaderCode
          shaders::resolve_full_64bpp_scaled_cs, sizeof(shaders::resolve_full_64bpp_scaled_cs)},
         {shaders::resolve_full_128bpp_cs, sizeof(shaders::resolve_full_128bpp_cs),
          shaders::resolve_full_128bpp_scaled_cs, sizeof(shaders::resolve_full_128bpp_scaled_cs)},
+};
+
+// The same shaders built for a 4096-tile EDRAM (EdramLayout::is_extended).
+const D3D12RenderTargetCache::ResolveCopyShaderCode
+    D3D12RenderTargetCache::kResolveCopyShaders4096[size_t(
+        draw_util::ResolveCopyShaderIndex::kCount)] = {
+        {shaders::resolve_fast_32bpp_1x2xmsaa_4096_cs, sizeof(shaders::resolve_fast_32bpp_1x2xmsaa_4096_cs),
+         shaders::resolve_fast_32bpp_1x2xmsaa_scaled_4096_cs,
+         sizeof(shaders::resolve_fast_32bpp_1x2xmsaa_scaled_4096_cs)},
+        {shaders::resolve_fast_32bpp_4xmsaa_4096_cs, sizeof(shaders::resolve_fast_32bpp_4xmsaa_4096_cs),
+         shaders::resolve_fast_32bpp_4xmsaa_scaled_4096_cs,
+         sizeof(shaders::resolve_fast_32bpp_4xmsaa_scaled_4096_cs)},
+        {shaders::resolve_fast_64bpp_1x2xmsaa_4096_cs, sizeof(shaders::resolve_fast_64bpp_1x2xmsaa_4096_cs),
+         shaders::resolve_fast_64bpp_1x2xmsaa_scaled_4096_cs,
+         sizeof(shaders::resolve_fast_64bpp_1x2xmsaa_scaled_4096_cs)},
+        {shaders::resolve_fast_64bpp_4xmsaa_4096_cs, sizeof(shaders::resolve_fast_64bpp_4xmsaa_4096_cs),
+         shaders::resolve_fast_64bpp_4xmsaa_scaled_4096_cs,
+         sizeof(shaders::resolve_fast_64bpp_4xmsaa_scaled_4096_cs)},
+        {shaders::resolve_full_8bpp_4096_cs, sizeof(shaders::resolve_full_8bpp_4096_cs),
+         shaders::resolve_full_8bpp_scaled_4096_cs, sizeof(shaders::resolve_full_8bpp_scaled_4096_cs)},
+        {shaders::resolve_full_16bpp_4096_cs, sizeof(shaders::resolve_full_16bpp_4096_cs),
+         shaders::resolve_full_16bpp_scaled_4096_cs, sizeof(shaders::resolve_full_16bpp_scaled_4096_cs)},
+        {shaders::resolve_full_32bpp_4096_cs, sizeof(shaders::resolve_full_32bpp_4096_cs),
+         shaders::resolve_full_32bpp_scaled_4096_cs, sizeof(shaders::resolve_full_32bpp_scaled_4096_cs)},
+        {shaders::resolve_full_64bpp_4096_cs, sizeof(shaders::resolve_full_64bpp_4096_cs),
+         shaders::resolve_full_64bpp_scaled_4096_cs, sizeof(shaders::resolve_full_64bpp_scaled_4096_cs)},
+        {shaders::resolve_full_128bpp_4096_cs, sizeof(shaders::resolve_full_128bpp_4096_cs),
+         shaders::resolve_full_128bpp_scaled_4096_cs, sizeof(shaders::resolve_full_128bpp_scaled_4096_cs)},
 };
 
 const uint32_t D3D12RenderTargetCache::kTransferUsedRootParameters[size_t(
@@ -172,6 +222,12 @@ D3D12RenderTargetCache::~D3D12RenderTargetCache() {
 bool D3D12RenderTargetCache::Initialize() {
   const ui::d3d12::D3D12Provider& provider = command_processor_.GetD3D12Provider();
   ID3D12Device* device = provider.GetDevice();
+
+  edram_layout_ = RequestedEdramLayout();
+  SetActiveEdramLayout(edram_layout_);
+  if (edram_layout_.is_extended()) {
+    REXGPU_INFO("D3D12 render target cache: emulating {} EDRAM tiles", edram_layout_.tile_count);
+  }
 
   if (REXCVAR_GET(render_target_path_d3d12) == "rtv") {
     path_ = Path::kHostRenderTargets;
@@ -344,7 +400,8 @@ bool D3D12RenderTargetCache::Initialize() {
   for (size_t i = 0; i < size_t(draw_util::ResolveCopyShaderIndex::kCount); ++i) {
     const draw_util::ResolveCopyShaderInfo& resolve_copy_shader_info =
         draw_util::resolve_copy_shader_info[i];
-    const ResolveCopyShaderCode& resolve_copy_shader_code = kResolveCopyShaders[i];
+    const ResolveCopyShaderCode& resolve_copy_shader_code =
+        edram_layout_.is_extended() ? kResolveCopyShaders4096[i] : kResolveCopyShaders[i];
     // Somewhat verification whether resolve_copy_shaders_ is up to date.
     assert_true(resolve_copy_shader_code.unscaled && resolve_copy_shader_code.unscaled_size &&
                 resolve_copy_shader_code.scaled && resolve_copy_shader_code.scaled_size);
@@ -920,10 +977,16 @@ bool D3D12RenderTargetCache::Initialize() {
     // Create the resolve EDRAM buffer clearing pipelines.
     resolve_rov_clear_32bpp_pipeline_ = ui::d3d12::util::CreateComputePipeline(
         device,
-        draw_resolution_scaled ? shaders::resolve_clear_32bpp_scaled_cs
-                               : shaders::resolve_clear_32bpp_cs,
-        draw_resolution_scaled ? sizeof(shaders::resolve_clear_32bpp_scaled_cs)
-                               : sizeof(shaders::resolve_clear_32bpp_cs),
+        edram_layout_.is_extended()
+            ? (draw_resolution_scaled ? shaders::resolve_clear_32bpp_scaled_4096_cs
+                                      : shaders::resolve_clear_32bpp_4096_cs)
+            : (draw_resolution_scaled ? shaders::resolve_clear_32bpp_scaled_cs
+                                      : shaders::resolve_clear_32bpp_cs),
+        edram_layout_.is_extended()
+            ? (draw_resolution_scaled ? sizeof(shaders::resolve_clear_32bpp_scaled_4096_cs)
+                                      : sizeof(shaders::resolve_clear_32bpp_4096_cs))
+            : (draw_resolution_scaled ? sizeof(shaders::resolve_clear_32bpp_scaled_cs)
+                                      : sizeof(shaders::resolve_clear_32bpp_cs)),
         resolve_rov_clear_root_signature_);
     if (resolve_rov_clear_32bpp_pipeline_ == nullptr) {
       REXGPU_ERROR(
@@ -935,10 +998,16 @@ bool D3D12RenderTargetCache::Initialize() {
     resolve_rov_clear_32bpp_pipeline_->SetName(L"Resolve Clear 32bpp");
     resolve_rov_clear_64bpp_pipeline_ = ui::d3d12::util::CreateComputePipeline(
         device,
-        draw_resolution_scaled ? shaders::resolve_clear_64bpp_scaled_cs
-                               : shaders::resolve_clear_64bpp_cs,
-        draw_resolution_scaled ? sizeof(shaders::resolve_clear_64bpp_scaled_cs)
-                               : sizeof(shaders::resolve_clear_64bpp_cs),
+        edram_layout_.is_extended()
+            ? (draw_resolution_scaled ? shaders::resolve_clear_64bpp_scaled_4096_cs
+                                      : shaders::resolve_clear_64bpp_4096_cs)
+            : (draw_resolution_scaled ? shaders::resolve_clear_64bpp_scaled_cs
+                                      : shaders::resolve_clear_64bpp_cs),
+        edram_layout_.is_extended()
+            ? (draw_resolution_scaled ? sizeof(shaders::resolve_clear_64bpp_scaled_4096_cs)
+                                      : sizeof(shaders::resolve_clear_64bpp_4096_cs))
+            : (draw_resolution_scaled ? sizeof(shaders::resolve_clear_64bpp_scaled_cs)
+                                      : sizeof(shaders::resolve_clear_64bpp_cs)),
         resolve_rov_clear_root_signature_);
     if (resolve_rov_clear_64bpp_pipeline_ == nullptr) {
       REXGPU_ERROR(

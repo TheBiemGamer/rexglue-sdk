@@ -12,12 +12,17 @@
 
 #include "pixel_formats.xesli"
 
+// EDRAM size in tiles; 4096 for the SDK's extended EDRAM (rex/graphics/edram_layout.h).
+#ifndef XE_EDRAM_TILE_COUNT
+  #define XE_EDRAM_TILE_COUNT 2048
+#endif
+
 #define kXenosMsaaSamples_1X 0u
 #define kXenosMsaaSamples_2X 1u
 #define kXenosMsaaSamples_4X 2u
 
 // `wrap = false` can be used if it's known that the resulting tile indices
-// can't exceed 11 bits, and the modulo operator doesn't need to be performed to
+// can't exceed the EDRAM size, and the modulo operator doesn't need to be performed to
 // access the data in the render targets that are located in both ends of the
 // EDRAM at the same time.
 uint XeEdramOffsetInts(uint2_xe pixel_index, uint base_tiles, bool wrap,
@@ -52,7 +57,7 @@ uint XeEdramOffsetInts(uint2_xe pixel_index, uint base_tiles, bool wrap,
        format_ints_log2);
   if (wrap) {
     // EDRAM addressing is periodic (modulo the EDRAM size).
-    address %= tile_size_at_32bpp.x * tile_size_at_32bpp.y * 2048u;
+    address %= tile_size_at_32bpp.x * tile_size_at_32bpp.y * uint(XE_EDRAM_TILE_COUNT);
   }
   return address;
 }
