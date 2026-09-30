@@ -44,6 +44,7 @@ set(REXSYSTEM_SOURCES
     function_dispatcher.cpp
     gpu_plugin_loader.cpp
     shader_constant_overrides.cpp
+    edram_layout.cpp
     thread.cpp
     thread_state.cpp
     xex_module.cpp

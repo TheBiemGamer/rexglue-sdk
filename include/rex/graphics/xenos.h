@@ -420,6 +420,14 @@ constexpr uint32_t kEdramPitchPixelsBits = 14;
 // usable on the Xenos, which has periodic 11-bit EDRAM tile addressing.
 constexpr uint32_t kEdramBaseTilesBits = 11;
 
+// Extended EDRAM for resolutions whose bound surfaces don't fit the real 10 MiB. The colour and
+// depth base register fields are 12 bits wide, so 4096 tiles is the most they can address. Only
+// used when the edram_tile_count setting asks for it (see rex/graphics/edram_layout.h).
+constexpr uint32_t kEdramTileCountMax = 4096;
+constexpr uint32_t kEdramBaseTilesBitsMax = 12;
+constexpr uint32_t kEdramSizeBytesMax =
+    kEdramTileCountMax * kEdramTileHeightSamples * kEdramTileWidthSamples * sizeof(uint32_t);
+
 constexpr uint32_t GetSurfacePitchTiles(uint32_t pitch_pixels, MsaaSamples msaa_samples,
                                         bool is_64bpp) {
   uint32_t pitch_samples = pitch_pixels << uint32_t(msaa_samples >= MsaaSamples::k4X);
