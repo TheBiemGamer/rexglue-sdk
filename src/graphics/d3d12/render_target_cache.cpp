@@ -223,6 +223,12 @@ bool D3D12RenderTargetCache::Initialize() {
   const ui::d3d12::D3D12Provider& provider = command_processor_.GetD3D12Provider();
   ID3D12Device* device = provider.GetDevice();
 
+  if (RequestedEdramLayout().is_extended() && !edram_layout().is_extended()) {
+    REXGPU_WARN(
+        "edram_tile_count 4096 needs a resolution scale area of at most 25 (the EDRAM buffer would "
+        "exceed D3D12 limits at {}x{}); using 2048",
+        draw_resolution_scale_x(), draw_resolution_scale_y());
+  }
   SetActiveEdramLayout(edram_layout());
   if (edram_layout().is_extended()) {
     REXGPU_INFO("D3D12 render target cache: emulating {} EDRAM tiles", edram_layout().tile_count);

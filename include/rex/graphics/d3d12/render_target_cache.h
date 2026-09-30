@@ -45,7 +45,9 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
                          uint32_t draw_resolution_scale_x, uint32_t draw_resolution_scale_y,
                          D3D12CommandProcessor& command_processor, bool bindless_resources_used)
       : RenderTargetCache(register_file, memory, draw_resolution_scale_x, draw_resolution_scale_y,
-                          RequestedEdramLayout()),
+                          FitEdramLayoutToResolutionScale(RequestedEdramLayout(),
+                                                          draw_resolution_scale_x,
+                                                          draw_resolution_scale_y)),
         command_processor_(command_processor),
         bindless_resources_used_(bindless_resources_used) {}
   ~D3D12RenderTargetCache() override;

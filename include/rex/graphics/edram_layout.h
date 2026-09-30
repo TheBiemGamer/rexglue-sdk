@@ -57,6 +57,18 @@ struct EdramLayout {
   }
 };
 
+// The EDRAM buffer is viewed as R32 elements, and D3D12 buffer views may hold at most 2^27 of
+// them. The resolution scale multiplies the buffer size, so a 4096-tile EDRAM fits only up to a
+// scale area of 25 (5x5); above that the stock 2048 tiles are used.
+constexpr EdramLayout FitEdramLayoutToResolutionScale(EdramLayout layout, uint32_t scale_x,
+                                                      uint32_t scale_y) {
+  constexpr uint64_t kMaxBufferElements = uint64_t(1) << 27;
+  if (uint64_t(layout.size_bytes()) * scale_x * scale_y / sizeof(uint32_t) > kMaxBufferElements) {
+    return EdramLayout{};
+  }
+  return layout;
+}
+
 // D3D12 pipeline storage file name. ROV shaders embed the EDRAM size, so a 4096-tile ROV cache gets
 // its own file; the stock names are unchanged so existing caches keep working.
 inline std::string PipelineStorageFileName(uint32_t title_id, bool rov, EdramLayout layout) {

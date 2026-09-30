@@ -136,3 +136,17 @@ TEST_CASE("pipeline storage file names keep stock caches separate", "[edram_layo
   REQUIRE(PipelineStorageFileName(0x4156089E, true, big) == "4156089E.rov.4096.d3d12.xpso");
   REQUIRE(PipelineStorageFileName(0x4156089E, false, big) == "4156089E.rtv.d3d12.xpso");
 }
+
+TEST_CASE("4096 tiles fall back to 2048 when the scaled EDRAM buffer exceeds D3D12 limits",
+          "[edram_layout]") {
+  using rex::graphics::FitEdramLayoutToResolutionScale;
+  const auto stock = EdramLayout::FromRequested(2048);
+  const auto big = EdramLayout::FromRequested(4096);
+  // 20 MiB x scale area as R32 elements must stay within 2^27.
+  REQUIRE(FitEdramLayoutToResolutionScale(big, 1, 1).tile_count == 4096);
+  REQUIRE(FitEdramLayoutToResolutionScale(big, 5, 5).tile_count == 4096);
+  REQUIRE(FitEdramLayoutToResolutionScale(big, 6, 5).tile_count == 2048);
+  REQUIRE(FitEdramLayoutToResolutionScale(big, 7, 7).tile_count == 2048);
+  // The stock EDRAM always fits (the scale is capped at 7 for that reason).
+  REQUIRE(FitEdramLayoutToResolutionScale(stock, 7, 7).tile_count == 2048);
+}
