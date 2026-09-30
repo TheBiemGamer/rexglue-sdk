@@ -833,6 +833,9 @@ class VulkanCommandProcessor : public CommandProcessor {
   // Float constant usage masks of the last draw call.
   uint64_t current_float_constant_map_vertex_[4];
   uint64_t current_float_constant_map_pixel_[4];
+  // Last rex::graphics::PixelConstantOverrideGeneration() the pixel float constants were built
+  // with; a change forces a re-upload so override settings apply immediately.
+  uint64_t pixel_constant_override_generation_ = 0;
 
   // System shader constants.
   SpirvShaderTranslator::SystemConstants system_constants_;

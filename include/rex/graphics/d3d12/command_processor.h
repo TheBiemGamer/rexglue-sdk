@@ -705,6 +705,9 @@ class D3D12CommandProcessor : public CommandProcessor {
   ConstantBufferBinding cbuffer_binding_system_;
   ConstantBufferBinding cbuffer_binding_float_vertex_;
   ConstantBufferBinding cbuffer_binding_float_pixel_;
+  // Last rex::graphics::PixelConstantOverrideGeneration() the pixel float constants were built
+  // with; a change forces a re-upload so override settings apply immediately.
+  uint64_t pixel_constant_override_generation_ = 0;
   ConstantBufferBinding cbuffer_binding_bool_loop_;
   ConstantBufferBinding cbuffer_binding_fetch_;
   ConstantBufferBinding cbuffer_binding_descriptor_indices_vertex_;

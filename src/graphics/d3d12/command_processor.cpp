@@ -23,6 +23,7 @@
 #include <rex/graphics/d3d12/graphics_system.h>
 #include <rex/graphics/d3d12/shader.h>
 #include <rex/graphics/flags.h>
+#include <rex/graphics/shader_constant_overrides.h>
 #include <rex/graphics/registers.h>
 #include <rex/graphics/util/draw.h>
 #include <rex/graphics/xenos.h>
@@ -4152,6 +4153,11 @@ bool D3D12CommandProcessor::UpdateBindings(const D3D12Shader* vertex_shader,
     cbuffer_binding_float_vertex_.up_to_date = true;
     current_graphics_root_up_to_date_ &= ~(1u << root_parameter_float_constants_vertex);
   }
+  const uint64_t override_generation = rex::graphics::PixelConstantOverrideGeneration();
+  if (override_generation != pixel_constant_override_generation_) {
+    pixel_constant_override_generation_ = override_generation;
+    cbuffer_binding_float_pixel_.up_to_date = false;
+  }
   if (!cbuffer_binding_float_pixel_.up_to_date) {
     uint8_t* float_constants = constant_buffer_pool_->Request(
         frame_current_, sizeof(float) * 4 * std::max(float_constant_count_pixel, uint32_t(1)),
@@ -4161,6 +4167,8 @@ bool D3D12CommandProcessor::UpdateBindings(const D3D12Shader* vertex_shader,
       return false;
     }
     if (pixel_shader != nullptr) {
+      const uint64_t pixel_hash = pixel_shader->ucode_data_hash();
+      const bool apply_overrides = rex::graphics::HasPixelConstantOverrides(pixel_hash);
       const Shader::ConstantRegisterMap& float_constant_map_pixel =
           pixel_shader->constant_register_map();
       for (uint32_t i = 0; i < 4; ++i) {
@@ -4172,6 +4180,11 @@ bool D3D12CommandProcessor::UpdateBindings(const D3D12Shader* vertex_shader,
               float_constants,
               &regs[XE_GPU_REG_SHADER_CONSTANT_256_X + (i << 8) + (float_constant_index << 2)],
               4 * sizeof(float));
+          if (apply_overrides) {
+            rex::graphics::ApplyPixelConstantOverrides(
+                pixel_hash, (i << 6) + float_constant_index,
+                reinterpret_cast<float*>(float_constants));
+          }
           float_constants += 4 * sizeof(float);
         }
       }

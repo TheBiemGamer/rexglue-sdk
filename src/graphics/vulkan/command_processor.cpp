@@ -30,6 +30,7 @@
 #include <rex/math.h>
 #include <rex/graphics/util/draw.h>
 #include <rex/graphics/flags.h>
+#include <rex/graphics/shader_constant_overrides.h>
 #include <rex/graphics/pipeline/shader/shader.h>
 #include <rex/graphics/pipeline/shader/spirv_translator.h>
 #include <rex/graphics/registers.h>
@@ -6497,6 +6498,12 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
       current_constant_buffers_up_to_date_ |= UINT32_C(1)
                                               << SpirvShaderTranslator::kConstantBufferFloatVertex;
     }
+    const uint64_t override_generation = rex::graphics::PixelConstantOverrideGeneration();
+    if (override_generation != pixel_constant_override_generation_) {
+      pixel_constant_override_generation_ = override_generation;
+      current_constant_buffers_up_to_date_ &=
+          ~(UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFloatPixel);
+    }
     // Pixel shader float constants.
     if (!(current_constant_buffers_up_to_date_ &
           (UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFloatPixel))) {
@@ -6511,6 +6518,9 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
         return false;
       }
       buffer_info.range = VkDeviceSize(float_constants_size);
+      const uint64_t pixel_hash = pixel_shader ? pixel_shader->ucode_data_hash() : 0;
+      const bool apply_overrides =
+          pixel_shader && rex::graphics::HasPixelConstantOverrides(pixel_hash);
       for (uint32_t i = 0; i < 4; ++i) {
         uint64_t float_constant_map_entry = current_float_constant_map_pixel_[i];
         uint32_t float_constant_index;
@@ -6520,6 +6530,10 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
               mapping,
               &regs[XE_GPU_REG_SHADER_CONSTANT_256_X + (i << 8) + (float_constant_index << 2)],
               sizeof(float) * 4);
+          if (apply_overrides) {
+            rex::graphics::ApplyPixelConstantOverrides(pixel_hash, (i << 6) + float_constant_index,
+                                                       reinterpret_cast<float*>(mapping));
+          }
           mapping += sizeof(float) * 4;
         }
       }
